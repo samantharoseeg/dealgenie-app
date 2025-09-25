@@ -1,0 +1,17 @@
+# Code Owners for DealGenie Pro
+# This file defines who reviews code changes
+
+# Global owners for all files
+* @samantharoseeg
+
+# Python and app files
+*.py @samantharoseeg
+app.py @samantharoseeg
+
+# Documentation
+*.md @samantharoseeg
+README.md @samantharoseeg
+
+# Configuration files
+requirements.txt @samantharoseeg
+.gitignore @samantharoseeg
