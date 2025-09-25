@@ -331,6 +331,18 @@ def render_input_section():
                     import pytesseract
                     image = Image.open(uploaded_file)
                     ocr_text = pytesseract.image_to_string(image)
+
+                    # Check if no text was extracted
+                    if not ocr_text.strip():
+                        st.warning("⚠️ No text found in image. The image may be unclear or contain no readable text. Using demo data.")
+                        ocr_text = """
+                        Purchase Price: $18.5MM
+                        NOI: $1,110,000
+                        Cap Rate: 6.0%
+                        Loan Amount: $13 million
+                        Interest Rate: 6.25%
+                        """
+
                 except Exception as e:
                     st.warning("OCR library not available. Using demo data.")
                     # Fallback to demo text if OCR fails
@@ -351,6 +363,18 @@ def render_input_section():
                             page_text = page.extract_text()
                             if page_text:
                                 ocr_text += page_text + "\n"
+
+                    # Check if no text was extracted
+                    if not ocr_text.strip():
+                        st.warning("⚠️ No text found in PDF. The file may be image-based or protected. Using demo data.")
+                        ocr_text = """
+                        Purchase Price: $18.5MM
+                        NOI: $1,110,000
+                        Cap Rate: 6.0%
+                        Loan Amount: $13 million
+                        Interest Rate: 6.25%
+                        """
+
                 except Exception as e:
                     st.warning("PDF processing library not available. Using demo data.")
                     ocr_text = """
@@ -370,6 +394,18 @@ def render_input_section():
                         for shape in slide.shapes:
                             if hasattr(shape, 'text'):
                                 ocr_text += shape.text + "\n"
+
+                    # Check if no text was extracted
+                    if not ocr_text.strip():
+                        st.warning("⚠️ No text found in PowerPoint. The slides may contain only images or shapes. Using demo data.")
+                        ocr_text = """
+                        Purchase Price: $18.5MM
+                        NOI: $1,110,000
+                        Cap Rate: 6.0%
+                        Loan Amount: $13 million
+                        Interest Rate: 6.25%
+                        """
+
                 except Exception as e:
                     st.warning("PowerPoint processing library not available. Using demo data.")
                     ocr_text = """
