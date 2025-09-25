@@ -1,0 +1,26 @@
+# DealGenie Pro Requirements
+# Python 3.8+
+
+# Core Dependencies
+streamlit==1.29.0
+pandas==2.1.4
+numpy==1.24.3
+plotly==5.18.0
+
+# Image Processing
+Pillow==10.1.0
+
+# OCR (Optional - if implementing real OCR)
+# pytesseract==0.3.10
+# opencv-python==4.8.1.78
+
+# Data Validation
+jsonschema==4.20.0
+
+# Date/Time
+python-dateutil==2.8.2
+
+# Development/Testing (Optional)
+# pytest==7.4.3
+# black==23.11.0
+# pylint==3.0.3
