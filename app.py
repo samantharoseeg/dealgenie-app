@@ -17,6 +17,7 @@ import io
 from PIL import Image
 import io
 from ocr_parser import ComprehensiveDataParser
+from llm_enhancement import render_api_settings, render_summary_with_llm_option, calculate_metrics_for_llm
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -841,22 +842,11 @@ def render_analysis(data: Dict):
     # Generate principal summary FIRST
     summary = generate_principal_summary(data)
 
-    # Display principal summary prominently at top
-    st.markdown("---")
-    st.markdown(f"""
-    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                padding: 2rem;
-                border-radius: 12px;
-                color: white;
-                margin: 1rem 0 2rem 0;">
-        <h2 style="margin: 0 0 1rem 0; font-size: 1.8rem;">
-            📋 Investment Summary
-        </h2>
-        <p style="font-size: 1.1rem; line-height: 1.8; margin: 0;">
-            {summary}
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
+    # Calculate metrics for LLM context
+    metrics = calculate_metrics_for_llm(data)
+
+    # Use the new LLM-enhanced summary renderer
+    render_summary_with_llm_option(summary, metrics)
 
     # Calculate metrics
     cap_rate = (data.get("noi", 0) / data.get("purchase_price", 1)) * 100
@@ -969,6 +959,9 @@ def main():
     """Main application entry point"""
     inject_custom_css()
     render_header()
+
+    # Render API settings in sidebar
+    render_api_settings()
 
     # Create tabs
     tab1, tab2, tab3, tab4 = st.tabs([
