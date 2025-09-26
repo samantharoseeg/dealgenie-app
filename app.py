@@ -16,6 +16,7 @@ import base64
 import io
 from PIL import Image
 import io
+from ocr_parser import ComprehensiveDataParser
 
 # Page Configuration
 st.set_page_config(
@@ -128,54 +129,30 @@ def calculate_irr(cash_flows: List[float]) -> float:
 # OCR PARSER
 # ============================================================================
 
+# Legacy parser for backward compatibility
 class FinancialDataParser:
-    """Parse financial data from text input with confidence scoring"""
-
-    def __init__(self):
-        self.patterns = {
-            'purchase_price': [
-                (r'\$?(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:MM?|million)', 1000000),
-                (r'purchase\s+price[:\s]+\$?(\d+(?:,\d{3})*)', 1)
-            ],
-            'noi': [
-                (r'NOI[:\s]+\$?(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:MM?|million)?', 1),
-                (r'net\s+operating\s+income[:\s]+\$?(\d+(?:,\d{3})*)', 1)
-            ],
-            'cap_rate': [
-                (r'(\d+(?:\.\d+)?)\s*%?\s*cap\s*rate', 0.01),
-                (r'cap[:\s]+(\d+(?:\.\d+)?)\s*%?', 0.01)
-            ],
-            'units': [
-                (r'(\d+)\s*units?', 1),
-                (r'(\d+)\s*apartments?', 1)
-            ],
-            'sf': [
-                (r'(\d+(?:,\d{3})*)\s*(?:SF|sq\.?\s*ft\.?|square\s*feet)', 1),
-                (r'(\d+(?:,\d{3})*)\s*RSF', 1)
-            ]
-        }
+    """Legacy parser - redirects to ComprehensiveDataParser"""
 
     def parse(self, text: str) -> Dict[str, Any]:
-        """Extract financial data from text"""
-        text = text.upper()
-        results = {'confidence': 0.8}
-        matches = 0
-        total = len(self.patterns)
+        """Use comprehensive parser but return simplified format for compatibility"""
+        parser = ComprehensiveDataParser()
+        result = parser.parse(text)
 
-        for field, pattern_list in self.patterns.items():
-            for pattern, multiplier in pattern_list:
-                match = re.search(pattern, text, re.IGNORECASE)
-                if match:
-                    value = match.group(1).replace(',', '')
-                    try:
-                        results[field] = float(value) * multiplier
-                        matches += 1
-                        break
-                    except:
-                        continue
+        # Extract key fields for backward compatibility
+        fields = result.get('extracted_fields', {})
+        simplified = {
+            'confidence': result.get('overall_confidence', 0.8),
+            'purchase_price': fields.get('purchase_price'),
+            'noi': fields.get('noi'),
+            'cap_rate': fields.get('cap_rate'),
+            'loan_amount': fields.get('loan_amount'),
+            'interest_rate': fields.get('interest_rate'),
+            'units': fields.get('unit_count'),
+            'sf': fields.get('building_sf')
+        }
 
-        results['confidence'] = min(0.95, 0.5 + (matches / total) * 0.5)
-        return results
+        # Remove None values
+        return {k: v for k, v in simplified.items() if v is not None}
 
 # ============================================================================
 # BENCHMARKS WITH SOURCES
@@ -238,6 +215,32 @@ def evaluate_against_benchmarks(asset_class: str, metrics: Dict) -> List[Dict]:
 # ============================================================================
 # MAIN APPLICATION
 # ============================================================================
+
+def _display_fields(extracted_data: Dict, field_names: List[str]):
+    """Helper function to display extracted fields in a clean format"""
+    for field in field_names:
+        if field in extracted_data:
+            value = extracted_data[field]
+            # Format the field name
+            display_name = field.replace('_', ' ').title()
+
+            # Format the value
+            if isinstance(value, float):
+                if field.endswith('_pct') or field == 'cap_rate':
+                    st.write(f"**{display_name}**: {value:.2f}%")
+                elif 'price' in field or 'cost' in field or 'amount' in field:
+                    st.write(f"**{display_name}**: ${value:,.0f}")
+                else:
+                    st.write(f"**{display_name}**: {value:,.2f}")
+            elif isinstance(value, list):
+                st.write(f"**{display_name}**:")
+                for item in value[:5]:  # Show first 5 items
+                    if isinstance(item, dict):
+                        st.caption(f"  • {item}")
+                    else:
+                        st.caption(f"  • {item}")
+            else:
+                st.write(f"**{display_name}**: {value}")
 
 def render_header():
     """Render application header"""
@@ -336,11 +339,45 @@ def render_input_section():
                     if not ocr_text.strip():
                         st.warning("⚠️ No text found in image. The image may be unclear or contain no readable text. Using demo data.")
                         ocr_text = """
+                        INVESTMENT SUMMARY
+                        Property: Northgate Business Center
+                        Address: 1234 Market Street, Dallas, TX 75201
+                        Year Built: 1985 | Renovated: 2020
+                        Building Size: 125,000 SF
+                        Site: 5.2 acres
+                        Parking: 350 spaces (2.8/1,000 SF)
+                        Occupancy: 92%
+                        WALT: 4.2 years
+                        Number of Tenants: 12
+                        Anchor Tenant: Wells Fargo (25,000 SF)
+
+                        FINANCIAL HIGHLIGHTS
                         Purchase Price: $18.5MM
+                        Price/SF: $148
                         NOI: $1,110,000
                         Cap Rate: 6.0%
+                        T-12 EGI: $1,850,000
+                        Operating Expenses: $740,000
+                        Real Estate Taxes: $285,000
+                        Insurance: $48,000
+                        Management Fee: 3.5%
+
+                        DEBT TERMS
                         Loan Amount: $13 million
-                        Interest Rate: 6.25%
+                        LTV: 70%
+                        Interest Rate: SOFR + 250 bps (6.25% all-in)
+                        Amortization: 30 years
+                        IO Period: 3 years
+                        Term: 10 years
+                        DSCR Requirement: 1.25x minimum
+                        Origination Fee: 1.0%
+                        Extension: 2x12mo at 0.25% fee
+                        Rate Cap: 7.5% strike
+
+                        EXIT STRATEGY
+                        Hold Period: 5 years
+                        Exit Cap Rate: 6.75%
+                        Disposition Fee: 1.5%
                         """
 
                 except Exception as e:
@@ -368,11 +405,45 @@ def render_input_section():
                     if not ocr_text.strip():
                         st.warning("⚠️ No text found in PDF. The file may be image-based or protected. Using demo data.")
                         ocr_text = """
+                        INVESTMENT SUMMARY
+                        Property: Northgate Business Center
+                        Address: 1234 Market Street, Dallas, TX 75201
+                        Year Built: 1985 | Renovated: 2020
+                        Building Size: 125,000 SF
+                        Site: 5.2 acres
+                        Parking: 350 spaces (2.8/1,000 SF)
+                        Occupancy: 92%
+                        WALT: 4.2 years
+                        Number of Tenants: 12
+                        Anchor Tenant: Wells Fargo (25,000 SF)
+
+                        FINANCIAL HIGHLIGHTS
                         Purchase Price: $18.5MM
+                        Price/SF: $148
                         NOI: $1,110,000
                         Cap Rate: 6.0%
+                        T-12 EGI: $1,850,000
+                        Operating Expenses: $740,000
+                        Real Estate Taxes: $285,000
+                        Insurance: $48,000
+                        Management Fee: 3.5%
+
+                        DEBT TERMS
                         Loan Amount: $13 million
-                        Interest Rate: 6.25%
+                        LTV: 70%
+                        Interest Rate: SOFR + 250 bps (6.25% all-in)
+                        Amortization: 30 years
+                        IO Period: 3 years
+                        Term: 10 years
+                        DSCR Requirement: 1.25x minimum
+                        Origination Fee: 1.0%
+                        Extension: 2x12mo at 0.25% fee
+                        Rate Cap: 7.5% strike
+
+                        EXIT STRATEGY
+                        Hold Period: 5 years
+                        Exit Cap Rate: 6.75%
+                        Disposition Fee: 1.5%
                         """
 
                 except Exception as e:
@@ -399,11 +470,45 @@ def render_input_section():
                     if not ocr_text.strip():
                         st.warning("⚠️ No text found in PowerPoint. The slides may contain only images or shapes. Using demo data.")
                         ocr_text = """
+                        INVESTMENT SUMMARY
+                        Property: Northgate Business Center
+                        Address: 1234 Market Street, Dallas, TX 75201
+                        Year Built: 1985 | Renovated: 2020
+                        Building Size: 125,000 SF
+                        Site: 5.2 acres
+                        Parking: 350 spaces (2.8/1,000 SF)
+                        Occupancy: 92%
+                        WALT: 4.2 years
+                        Number of Tenants: 12
+                        Anchor Tenant: Wells Fargo (25,000 SF)
+
+                        FINANCIAL HIGHLIGHTS
                         Purchase Price: $18.5MM
+                        Price/SF: $148
                         NOI: $1,110,000
                         Cap Rate: 6.0%
+                        T-12 EGI: $1,850,000
+                        Operating Expenses: $740,000
+                        Real Estate Taxes: $285,000
+                        Insurance: $48,000
+                        Management Fee: 3.5%
+
+                        DEBT TERMS
                         Loan Amount: $13 million
-                        Interest Rate: 6.25%
+                        LTV: 70%
+                        Interest Rate: SOFR + 250 bps (6.25% all-in)
+                        Amortization: 30 years
+                        IO Period: 3 years
+                        Term: 10 years
+                        DSCR Requirement: 1.25x minimum
+                        Origination Fee: 1.0%
+                        Extension: 2x12mo at 0.25% fee
+                        Rate Cap: 7.5% strike
+
+                        EXIT STRATEGY
+                        Hold Period: 5 years
+                        Exit Cap Rate: 6.75%
+                        Disposition Fee: 1.5%
                         """
 
                 except Exception as e:
@@ -421,15 +526,78 @@ def render_input_section():
                 return parsed_data
 
             if ocr_text.strip():
+                # Use comprehensive parser
+                comprehensive_parser = ComprehensiveDataParser()
+                comprehensive_result = comprehensive_parser.parse(ocr_text)
+
+                # Show extraction results
+                col1, col2 = st.columns([2, 1])
+
+                with col1:
+                    # Show extracted text in expander
+                    with st.expander("📝 Extracted Text", expanded=False):
+                        st.text(ocr_text[:2000] + "..." if len(ocr_text) > 2000 else ocr_text)
+
+                with col2:
+                    # Show extraction summary
+                    st.metric(
+                        "Extraction Confidence",
+                        f"{comprehensive_result['overall_confidence']*100:.0f}%"
+                    )
+                    st.caption(f"Fields found: {len(comprehensive_result['extracted_fields'])}")
+
+                # Display all extracted fields in organized tabs
+                if comprehensive_result['extracted_fields']:
+                    st.subheader("📊 Extracted Data")
+
+                    tabs = st.tabs(["Deal Info", "Financials", "Debt Terms", "Operations", "Development"])
+
+                    with tabs[0]:  # Deal Info
+                        deal_fields = ['property_name', 'street_address', 'city', 'state', 'zip_code',
+                                      'year_built', 'year_renovated', 'building_sf', 'unit_count',
+                                      'parking_spaces', 'occupancy_pct', 'walt_years', 'anchor_tenant']
+                        _display_fields(comprehensive_result['extracted_fields'], deal_fields)
+
+                    with tabs[1]:  # Financials
+                        financial_fields = ['purchase_price', 'noi', 'cap_rate', 'gross_income',
+                                          'operating_expenses', 'exit_cap_rate', 'hold_period_years',
+                                          'closing_costs', 'disposition_fee_pct']
+                        _display_fields(comprehensive_result['extracted_fields'], financial_fields)
+
+                    with tabs[2]:  # Debt Terms
+                        debt_fields = ['loan_amount', 'interest_rate', 'amort_years', 'io_period_years',
+                                      'loan_term_years', 'ltv_pct', 'min_dscr', 'origination_fee_pct',
+                                      'rate_cap_strike', 'extension_count', 'extension_term_months']
+                        _display_fields(comprehensive_result['extracted_fields'], debt_fields)
+
+                    with tabs[3]:  # Operations
+                        ops_fields = ['real_estate_taxes', 'insurance_cost', 'management_fee_pct',
+                                     'replacement_reserves', 'vacancy_rate', 'market_rent',
+                                     'ti_allowance_new', 'leasing_commission_pct', 'free_rent_months']
+                        _display_fields(comprehensive_result['extracted_fields'], ops_fields)
+
+                    with tabs[4]:  # Development
+                        dev_fields = ['land_cost', 'hard_costs', 'soft_costs', 'developer_fee',
+                                     'contingency_pct', 'preleasing_pct', 'expected_delivery',
+                                     'construction_contract_type', 'general_contractor']
+                        _display_fields(comprehensive_result['extracted_fields'], dev_fields)
+
+                # Show extraction notes
+                if comprehensive_result['extraction_notes']:
+                    with st.expander("📋 Extraction Notes", expanded=False):
+                        for note in comprehensive_result['extraction_notes'][:10]:  # Show first 10
+                            st.caption(f"• {note}")
+
+                # Show missing critical fields
+                if comprehensive_result['missing_critical']:
+                    st.warning(f"⚠️ Missing critical fields: {', '.join(comprehensive_result['missing_critical'])}")
+
+                # Convert to legacy format for compatibility
                 parser = FinancialDataParser()
                 parsed_data = parser.parse(ocr_text)
                 parsed_data["asset_class"] = "Office"  # Default
 
-                # Show extracted text in expander
-                with st.expander("📝 Extracted Text", expanded=False):
-                    st.text(ocr_text[:1000] + "..." if len(ocr_text) > 1000 else ocr_text)
-
-                st.success(f"✅ Data extracted with {parsed_data['confidence']*100:.0f}% confidence")
+                st.success(f"✅ Extracted {len(comprehensive_result['extracted_fields'])} fields with {comprehensive_result['overall_confidence']*100:.0f}% confidence")
 
     return parsed_data
 
