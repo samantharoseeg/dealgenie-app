@@ -974,6 +974,164 @@ class CREExtractionEngine:
 
 
 # ============================================================================
+# PUBLIC API FUNCTIONS
+# ============================================================================
+
+def extract_and_analyze(asset_class: str, subclass: str, raw_text: str,
+                        benchmark_library: Dict = None, ocr_blocks: List[Dict] = None) -> Dict:
+    """
+    Main public function to extract and analyze CRE deal data
+
+    Args:
+        asset_class: Main asset class (e.g., 'office', 'multifamily', 'industrial')
+        subclass: Specific subclass (e.g., 'cbd_A_trophy', 'garden_lowrise')
+        raw_text: Raw text from OCR or document
+        benchmark_library: Optional external benchmark data to use
+        ocr_blocks: Optional OCR block data with bounding boxes
+
+    Returns:
+        Dictionary with comprehensive analysis results:
+        - ingested: Raw extracted fields with confidence scores
+        - derived: Calculated metrics
+        - bench_compare: Benchmark comparisons
+        - risks_ranked: Risk assessment with mitigations
+        - known: List of known facts
+        - unknown: List of missing critical data
+        - completeness: Data completeness metrics
+        - sensitivities: Sensitivity analysis results
+        - glossary_refs: Referenced glossary terms
+        - notes: Processing notes and warnings
+        - confidence: Field-level confidence scores
+    """
+
+    # Validate inputs
+    if not asset_class or not subclass:
+        return {
+            'error': 'Asset class and subclass are required',
+            'ingested': {},
+            'derived': {},
+            'bench_compare': {},
+            'risks_ranked': [],
+            'known': [],
+            'unknown': ['Asset class and subclass not specified'],
+            'completeness': {'score': 0, 'required_fields': 0, 'total_required': 0},
+            'sensitivities': {},
+            'glossary_refs': [],
+            'notes': ['Failed: Asset class and subclass required'],
+            'confidence': {}
+        }
+
+    if not raw_text or not raw_text.strip():
+        return {
+            'error': 'No text provided for extraction',
+            'ingested': {},
+            'derived': {},
+            'bench_compare': {},
+            'risks_ranked': [],
+            'known': [],
+            'unknown': ['No data provided'],
+            'completeness': {'score': 0, 'required_fields': 0, 'total_required': 0},
+            'sensitivities': {},
+            'glossary_refs': [],
+            'notes': ['Failed: No text provided'],
+            'confidence': {}
+        }
+
+    try:
+        # Initialize extraction engine
+        engine = CREExtractionEngine(asset_class, subclass)
+
+        # Override benchmark library if provided
+        if benchmark_library:
+            # Store custom benchmark library for use
+            engine.custom_benchmarks = benchmark_library
+
+        # Run extraction
+        result = engine.extract(raw_text, ocr_blocks)
+
+        # Add confidence scores as separate field
+        result['confidence'] = engine.confidence
+
+        # Add glossary references (placeholder - would implement glossary matching)
+        result['glossary_refs'] = extract_glossary_terms(raw_text)
+
+        return result
+
+    except Exception as e:
+        return {
+            'error': f'Extraction failed: {str(e)}',
+            'ingested': {},
+            'derived': {},
+            'bench_compare': {},
+            'risks_ranked': [],
+            'known': [],
+            'unknown': ['Extraction failed'],
+            'completeness': {'score': 0, 'required_fields': 0, 'total_required': 0},
+            'sensitivities': {},
+            'glossary_refs': [],
+            'notes': [f'Error: {str(e)}'],
+            'confidence': {}
+        }
+
+def extract_glossary_terms(text: str) -> List[str]:
+    """
+    Extract glossary terms mentioned in the text
+    Simple implementation - would be enhanced with actual glossary database
+    """
+    glossary_terms = [
+        'NOI', 'DSCR', 'LTV', 'Cap Rate', 'WALT', 'TI', 'LC',
+        'RevPAR', 'ADR', 'GOP', 'FFE', 'PIP', 'SOFR', 'IRR',
+        'Equity Multiple', 'Cash-on-Cash', 'Yield on Cost'
+    ]
+
+    found_terms = []
+    text_upper = text.upper()
+
+    for term in glossary_terms:
+        if term.upper() in text_upper:
+            found_terms.append(term)
+
+    return found_terms
+
+def load_benchmarks() -> Dict:
+    """
+    Load benchmark library from app configuration
+    This function provides the interface to get benchmarks from the main app
+    """
+    try:
+        from app import BENCHMARKS
+        return BENCHMARKS
+    except ImportError:
+        # Return default benchmarks if app not available
+        return {
+            "Office": {
+                "cap_rate": {"min": 5.5, "preferred": 6.5, "max": 7.5, "source": "CBRE Q4 2024"},
+                "dscr": {"min": 1.25, "preferred": 1.40, "max": 1.60, "source": "MBA Survey Q4 2024"},
+                "ltv": {"min": 50, "preferred": 65, "max": 75, "source": "CMBS Market Report 2024"}
+            },
+            "Multifamily": {
+                "cap_rate": {"min": 4.5, "preferred": 5.5, "max": 6.5, "source": "RCA Analytics Q4 2024"},
+                "dscr": {"min": 1.20, "preferred": 1.35, "max": 1.50, "source": "Freddie Mac 2024"},
+                "ltv": {"min": 55, "preferred": 70, "max": 80, "source": "Fannie Mae Guidelines 2024"}
+            },
+            "Industrial": {
+                "cap_rate": {"min": 5.0, "preferred": 6.0, "max": 7.0, "source": "JLL Research Q4 2024"},
+                "dscr": {"min": 1.25, "preferred": 1.40, "max": 1.55, "source": "Life Co Survey 2024"},
+                "ltv": {"min": 55, "preferred": 65, "max": 70, "source": "CMBS Market Report 2024"}
+            },
+            "Retail": {
+                "cap_rate": {"min": 6.0, "preferred": 7.0, "max": 8.0, "source": "Cushman & Wakefield 2024"},
+                "dscr": {"min": 1.35, "preferred": 1.50, "max": 1.75, "source": "Regional Banks Survey"},
+                "ltv": {"min": 50, "preferred": 60, "max": 65, "source": "Insurance Co Guidelines"}
+            },
+            "Hotel": {
+                "cap_rate": {"min": 7.0, "preferred": 8.5, "max": 10.0, "source": "STR/HVS Report 2024"},
+                "dscr": {"min": 1.30, "preferred": 1.45, "max": 1.60, "source": "Hospitality Lenders 2024"},
+                "ltv": {"min": 50, "preferred": 60, "max": 65, "source": "CMBS Hotel Loans 2024"}
+            }
+        }
+
+# ============================================================================
 # ACCEPTANCE TEST RUNNER
 # ============================================================================
 
