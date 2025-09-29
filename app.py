@@ -18,6 +18,7 @@ from PIL import Image
 import io
 from ocr_parser import ComprehensiveDataParser
 from llm_enhancement import render_api_settings, render_summary_with_llm_option, calculate_metrics_for_llm
+from cre_extraction_engine import CREExtractionEngine, ASSET_CLASSES
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -327,6 +328,38 @@ def render_input_section():
         }
 
     elif input_method == "📷 Photo/OCR":
+        # Asset Class Selection for Enhanced Extraction
+        st.markdown("### 🏢 Asset Classification")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            asset_class = st.selectbox(
+                "Select Asset Class",
+                options=list(ASSET_CLASSES.keys()),
+                help="Choose the property type for enhanced extraction and benchmarks"
+            )
+
+        with col2:
+            if asset_class in ASSET_CLASSES:
+                subclass = st.selectbox(
+                    "Select Subclass",
+                    options=ASSET_CLASSES[asset_class],
+                    help="Choose specific subclass for targeted analysis"
+                )
+            else:
+                subclass = None
+
+        # Store selections in session state
+        if 'asset_class' not in st.session_state:
+            st.session_state.asset_class = asset_class
+        if 'subclass' not in st.session_state:
+            st.session_state.subclass = subclass
+
+        st.session_state.asset_class = asset_class
+        st.session_state.subclass = subclass
+
+        st.markdown("---")
+
         uploaded_file = st.file_uploader(
             "Upload deal summary (Image, PDF, or PowerPoint)",
             type=['png', 'jpg', 'jpeg', 'pdf', 'pptx', 'ppt']
@@ -535,28 +568,189 @@ def render_input_section():
                 return parsed_data
 
             if ocr_text.strip():
-                # Use comprehensive parser
-                comprehensive_parser = ComprehensiveDataParser()
-                comprehensive_result = comprehensive_parser.parse(ocr_text)
+                # Use enhanced CRE extraction engine if asset class selected
+                if hasattr(st.session_state, 'asset_class') and hasattr(st.session_state, 'subclass'):
+                    try:
+                        st.info(f"🚀 Using Enhanced Extraction for {st.session_state.asset_class.title()} - {st.session_state.subclass.replace('_', ' ').title()}")
 
-                # Show extraction results
-                col1, col2 = st.columns([2, 1])
+                        # Initialize CRE extraction engine
+                        cre_engine = CREExtractionEngine(st.session_state.asset_class, st.session_state.subclass)
+                        cre_result = cre_engine.extract(ocr_text)
 
-                with col1:
-                    # Show extracted text in expander
-                    with st.expander("📝 Extracted Text", expanded=False):
-                        st.text(ocr_text[:2000] + "..." if len(ocr_text) > 2000 else ocr_text)
+                        # Display enhanced results
+                        col1, col2 = st.columns([2, 1])
 
-                with col2:
-                    # Show extraction summary
-                    st.metric(
-                        "Extraction Confidence",
-                        f"{comprehensive_result['overall_confidence']*100:.0f}%"
-                    )
-                    st.caption(f"Fields found: {len(comprehensive_result['extracted_fields'])}")
+                        with col1:
+                            # Show extracted text in expander
+                            with st.expander("📝 Extracted Text", expanded=False):
+                                st.text(ocr_text[:2000] + "..." if len(ocr_text) > 2000 else ocr_text)
 
-                # Display all extracted fields in organized tabs
-                if comprehensive_result['extracted_fields']:
+                        with col2:
+                            # Show extraction summary with new metrics
+                            completeness = cre_result.get('completeness', {})
+                            required_fields = completeness.get('required_fields', 0)
+                            total_required = completeness.get('total_required', 1)
+                            completeness_pct = (required_fields / total_required) * 100
+
+                            st.metric("Completeness", f"{completeness_pct:.0f}%")
+                            st.caption(f"Required: {required_fields}/{total_required}")
+                            st.caption(f"Total fields: {len(cre_result.get('ingested', {}))}")
+
+                        # Store enhanced results for analysis
+                        st.session_state.cre_result = cre_result
+
+                    except Exception as e:
+                        st.error(f"Enhanced extraction failed: {str(e)}")
+                        st.info("Falling back to basic parser...")
+
+                        # Fallback to comprehensive parser
+                        comprehensive_parser = ComprehensiveDataParser()
+                        comprehensive_result = comprehensive_parser.parse(ocr_text)
+
+                        # Show extraction results
+                        col1, col2 = st.columns([2, 1])
+
+                        with col1:
+                            # Show extracted text in expander
+                            with st.expander("📝 Extracted Text", expanded=False):
+                                st.text(ocr_text[:2000] + "..." if len(ocr_text) > 2000 else ocr_text)
+
+                        with col2:
+                            # Show extraction summary
+                            st.metric(
+                                "Extraction Confidence",
+                                f"{comprehensive_result['overall_confidence']*100:.0f}%"
+                            )
+                            st.caption(f"Fields found: {len(comprehensive_result['extracted_fields'])}")
+
+                else:
+                    # Use basic comprehensive parser if no asset class selected
+                    comprehensive_parser = ComprehensiveDataParser()
+                    comprehensive_result = comprehensive_parser.parse(ocr_text)
+
+                    # Show extraction results
+                    col1, col2 = st.columns([2, 1])
+
+                    with col1:
+                        # Show extracted text in expander
+                        with st.expander("📝 Extracted Text", expanded=False):
+                            st.text(ocr_text[:2000] + "..." if len(ocr_text) > 2000 else ocr_text)
+
+                    with col2:
+                        # Show extraction summary
+                        st.metric(
+                            "Extraction Confidence",
+                            f"{comprehensive_result['overall_confidence']*100:.0f}%"
+                        )
+                        st.caption(f"Fields found: {len(comprehensive_result['extracted_fields'])}")
+
+                # Display extracted data - Enhanced CRE results or fallback
+                if hasattr(st.session_state, 'cre_result') and st.session_state.cre_result:
+                    # Display enhanced CRE extraction results
+                    cre_result = st.session_state.cre_result
+
+                    st.subheader("🚀 Enhanced CRE Analysis")
+
+                    # Enhanced display with tabs for new structure
+                    tabs = st.tabs(["📋 Ingested", "📊 Derived", "⚖️ Benchmarks", "⚠️ Risks", "📈 Sensitivities", "❓ Unknown"])
+
+                    with tabs[0]:  # Ingested Fields
+                        st.markdown("**Extracted Fields**")
+                        if cre_result.get('ingested'):
+                            for field, value in cre_result['ingested'].items():
+                                confidence = cre_result.get('confidence', {}).get(field, 'Medium')
+
+                                # Format value for display
+                                if isinstance(value, float):
+                                    if field.endswith('_pct') or field.endswith('_rate'):
+                                        formatted_value = f"{value:.2%}"
+                                    elif value > 1000:
+                                        formatted_value = f"${value:,.0f}"
+                                    else:
+                                        formatted_value = f"{value:.3f}"
+                                else:
+                                    formatted_value = str(value)
+
+                                st.write(f"**{field.replace('_', ' ').title()}:** {formatted_value} ({confidence} confidence)")
+
+                    with tabs[1]:  # Derived Metrics
+                        st.markdown("**Computed Metrics**")
+                        if cre_result.get('derived'):
+                            for metric, value in cre_result['derived'].items():
+                                if not metric.endswith('_calc'):
+                                    # Format derived values
+                                    if isinstance(value, float):
+                                        if metric in ['cap_rate', 'yield_on_cost', 'debt_yield', 'dscr']:
+                                            formatted_value = f"{value:.3f}"
+                                        elif metric in ['exit_value', 'net_sale_proceeds', 'refi_proceeds']:
+                                            formatted_value = f"${value:,.0f}"
+                                        else:
+                                            formatted_value = f"{value:.3f}"
+                                    else:
+                                        formatted_value = str(value)
+
+                                    # Show calculation if available
+                                    calc = cre_result['derived'].get(f"{metric}_calc", "")
+                                    st.write(f"**{metric.replace('_', ' ').title()}:** {formatted_value}")
+                                    if calc:
+                                        st.caption(f"Calculation: {calc}")
+
+                    with tabs[2]:  # Benchmark Comparisons
+                        st.markdown("**Benchmark Analysis**")
+                        if cre_result.get('bench_compare'):
+                            for field, comparison in cre_result['bench_compare'].items():
+                                status = comparison.get('status', 'Unknown')
+                                benchmark_info = comparison.get('benchmark', 'N/A')
+                                source = comparison.get('source', 'Industry Research')
+
+                                if status == 'OK':
+                                    st.success(f"✅ **{field.replace('_', ' ').title()}:** {status}")
+                                elif status in ['Above Target', 'Offside High']:
+                                    st.info(f"📈 **{field.replace('_', ' ').title()}:** {status}")
+                                elif status in ['Below Target', 'Offside Low']:
+                                    st.warning(f"📉 **{field.replace('_', ' ').title()}:** {status}")
+                                elif status == 'Poor':
+                                    st.error(f"🔴 **{field.replace('_', ' ').title()}:** {status}")
+                                else:
+                                    st.write(f"**{field.replace('_', ' ').title()}:** {status}")
+
+                                # Show benchmark source
+                                st.caption(f"Benchmark: {benchmark_info}")
+
+                    with tabs[3]:  # Risk Analysis
+                        st.markdown("**Risk Assessment**")
+                        if cre_result.get('risks_ranked'):
+                            for risk in cre_result['risks_ranked']:
+                                severity = risk.get('severity', 'Medium')
+                                if severity == 'High':
+                                    st.error(f"🔴 **{risk['metric'].replace('_', ' ').title()}:** {risk['issue']}")
+                                elif severity == 'Medium':
+                                    st.warning(f"🟡 **{risk['metric'].replace('_', ' ').title()}:** {risk['issue']}")
+                                else:
+                                    st.info(f"🔵 **{risk['metric'].replace('_', ' ').title()}:** {risk['issue']}")
+
+                                # Show mitigations
+                                if risk.get('mitigations'):
+                                    st.caption("Mitigations:")
+                                    for mitigation in risk['mitigations']:
+                                        st.caption(f"• {mitigation}")
+
+                    with tabs[4]:  # Sensitivity Analysis
+                        st.markdown("**Sensitivity Analysis**")
+                        if cre_result.get('sensitivities'):
+                            for metric, scenarios in cre_result['sensitivities'].items():
+                                st.write(f"**{metric.replace('_', ' ').title()} Sensitivity:**")
+                                for scenario, values in scenarios.items():
+                                    st.caption(f"• {scenario}: " + ", ".join([f"{k}={v:.2f}" if isinstance(v, float) else f"{k}={v}" for k, v in values.items()]))
+
+                    with tabs[5]:  # Unknown Fields
+                        st.markdown("**Missing Data**")
+                        if cre_result.get('unknown'):
+                            for item in cre_result['unknown']:
+                                st.write(f"• {item}")
+
+                elif 'comprehensive_result' in locals() and comprehensive_result['extracted_fields']:
+                    # Fallback to basic comprehensive parser display
                     st.subheader("📊 Extracted Data")
 
                     tabs = st.tabs(["Deal Info", "Financials", "Debt Terms", "Operations", "Development"])
@@ -591,22 +785,56 @@ def render_input_section():
                                      'construction_contract_type', 'general_contractor']
                         _display_fields(comprehensive_result['extracted_fields'], dev_fields)
 
-                # Show extraction notes
-                if comprehensive_result['extraction_notes']:
-                    with st.expander("📋 Extraction Notes", expanded=False):
-                        for note in comprehensive_result['extraction_notes'][:10]:  # Show first 10
-                            st.caption(f"• {note}")
+                    # Show extraction notes
+                    if comprehensive_result['extraction_notes']:
+                        with st.expander("📋 Extraction Notes", expanded=False):
+                            for note in comprehensive_result['extraction_notes'][:10]:  # Show first 10
+                                st.caption(f"• {note}")
 
-                # Show missing critical fields
-                if comprehensive_result['missing_critical']:
-                    st.warning(f"⚠️ Missing critical fields: {', '.join(comprehensive_result['missing_critical'])}")
+                    # Show missing critical fields
+                    if comprehensive_result['missing_critical']:
+                        st.warning(f"⚠️ Missing critical fields: {', '.join(comprehensive_result['missing_critical'])}")
 
                 # Convert to legacy format for compatibility
-                parser = FinancialDataParser()
-                parsed_data = parser.parse(ocr_text)
-                parsed_data["asset_class"] = "Office"  # Default
+                if hasattr(st.session_state, 'cre_result') and st.session_state.cre_result:
+                    # Use enhanced CRE results
+                    cre_result = st.session_state.cre_result
+                    parsed_data = {
+                        'confidence': 0.9,  # Higher confidence for enhanced extraction
+                        'purchase_price': cre_result.get('ingested', {}).get('purchase_price'),
+                        'noi': cre_result.get('ingested', {}).get('noi_now'),
+                        'cap_rate': cre_result.get('derived', {}).get('cap_rate') or cre_result.get('ingested', {}).get('entry_cap'),
+                        'loan_amount': cre_result.get('ingested', {}).get('loan_amount'),
+                        'interest_rate': cre_result.get('ingested', {}).get('rate'),
+                        'asset_class': st.session_state.asset_class.title(),
+                        'subclass': st.session_state.subclass
+                    }
 
-                st.success(f"✅ Extracted {len(comprehensive_result['extracted_fields'])} fields with {comprehensive_result['overall_confidence']*100:.0f}% confidence")
+                    # Add more fields from ingested data
+                    ingested = cre_result.get('ingested', {})
+                    for key in ['ltv', 'dscr', 'occupancy_pct', 'expense_ratio']:
+                        if key in ingested:
+                            parsed_data[key] = ingested[key]
+
+                    # Add derived metrics
+                    derived = cre_result.get('derived', {})
+                    for key in ['equity_multiple', 'irr', 'yield_on_cost']:
+                        if key in derived:
+                            parsed_data[key] = derived[key]
+
+                    completeness = cre_result.get('completeness', {})
+                    required_fields = completeness.get('required_fields', 0)
+                    total_required = completeness.get('total_required', 1)
+                    st.success(f"🚀 Enhanced extraction completed: {required_fields}/{total_required} required fields ({len(cre_result.get('ingested', {}))+ len(cre_result.get('derived', {}))} total)")
+
+                else:
+                    # Fallback to basic parser
+                    parser = FinancialDataParser()
+                    parsed_data = parser.parse(ocr_text)
+                    parsed_data["asset_class"] = "Office"  # Default
+
+                    if 'comprehensive_result' in locals():
+                        st.success(f"✅ Extracted {len(comprehensive_result['extracted_fields'])} fields with {comprehensive_result['overall_confidence']*100:.0f}% confidence")
 
     return parsed_data
 
@@ -975,6 +1203,8 @@ def main():
         data = render_input_section()
         if data:
             render_analysis(data)
+            # Store data in session state for other tabs
+            st.session_state.analysis_data = data
 
     with tab2:
         st.header("📚 Industry Benchmarks")
@@ -1077,34 +1307,40 @@ def main():
     with tab4:
         st.header("📄 Report Generation")
 
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            if st.button("📑 Generate PDF Report", use_container_width=True):
-                pdf_bytes = generate_pdf_report(parsed_data)
-                st.download_button(
-                    label="📥 Download PDF",
-                    data=pdf_bytes,
-                    file_name=f"DealGenie_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
-                    mime="application/pdf"
-                )
-        with col2:
-            if st.button("📊 Export to Excel", use_container_width=True):
-                excel_bytes = generate_excel_export(parsed_data)
-                st.download_button(
-                    label="📥 Download Excel",
-                    data=excel_bytes,
-                    file_name=f"DealGenie_Analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-        with col3:
-            if st.button("📈 Export Charts", use_container_width=True):
-                chart_bytes = generate_chart_export(parsed_data)
-                st.download_button(
-                    label="📥 Download Charts",
-                    data=chart_bytes,
-                    file_name=f"DealGenie_Charts_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
-                    mime="image/png"
-                )
+        # Check if we have analysis data
+        if not hasattr(st.session_state, 'analysis_data') or not st.session_state.analysis_data:
+            st.warning("⚠️ Please complete the analysis in the Analysis tab first to generate reports.")
+        else:
+            analysis_data = st.session_state.analysis_data
+
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                if st.button("📑 Generate PDF Report", use_container_width=True):
+                    pdf_bytes = generate_pdf_report(analysis_data)
+                    st.download_button(
+                        label="📥 Download PDF",
+                        data=pdf_bytes,
+                        file_name=f"DealGenie_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                        mime="application/pdf"
+                    )
+            with col2:
+                if st.button("📊 Export to Excel", use_container_width=True):
+                    excel_bytes = generate_excel_export(analysis_data)
+                    st.download_button(
+                        label="📥 Download Excel",
+                        data=excel_bytes,
+                        file_name=f"DealGenie_Analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+            with col3:
+                if st.button("📈 Export Charts", use_container_width=True):
+                    chart_bytes = generate_chart_export(analysis_data)
+                    st.download_button(
+                        label="📥 Download Charts",
+                        data=chart_bytes,
+                        file_name=f"DealGenie_Charts_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
+                        mime="image/png"
+                    )
 
 if __name__ == "__main__":
     main()
