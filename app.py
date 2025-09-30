@@ -19,6 +19,14 @@ import io
 from ocr_parser import ComprehensiveDataParser
 from llm_enhancement import render_api_settings, render_summary_with_llm_option, calculate_metrics_for_llm
 from cre_extraction_engine import CREExtractionEngine, ASSET_CLASSES
+from benchmarks import (
+    BENCHMARKS as BENCHMARK_DATA,
+    METRICS_CATALOG,
+    get_benchmark_range,
+    get_status,
+    get_metric_info,
+    get_all_metrics_for_asset_class
+)
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -44,6 +52,11 @@ st.set_page_config(
 # ============================================================================
 # CUSTOM STYLING
 # ============================================================================
+
+def create_metric_help_text(metric: str) -> str:
+    """Create help text for a metric using the catalog"""
+    info = get_metric_info(metric)
+    return f"{info.get('description', '')}\n\n{info.get('why_it_matters', '')}"
 
 def inject_custom_css():
     """Apply custom CSS styling for professional look"""
@@ -117,6 +130,143 @@ def calculate_mortgage_constant(annual_rate: float, amort_years: int, io_period:
         monthly_payment = (monthly_rate * (1 + monthly_rate)**n_payments) / ((1 + monthly_rate)**n_payments - 1)
 
     return monthly_payment * 12
+
+def get_metric_info(metric_name: str) -> Dict:
+    """Get metric information from METRICS_CATALOG"""
+    try:
+        from benchmarks import METRICS_CATALOG
+        return METRICS_CATALOG.get(metric_name, {
+            "unit": "",
+            "description": f"Metric: {metric_name}",
+            "why_it_matters": "Important for investment analysis"
+        })
+    except ImportError:
+        return {
+            "unit": "",
+            "description": f"Metric: {metric_name}",
+            "why_it_matters": "Important for investment analysis"
+        }
+
+def get_all_metrics_for_asset_class(asset_class: str, subclass: str) -> Dict[str, List[str]]:
+    """
+    Get filtered metrics relevant to specific asset class and subclass
+    Returns categorized metrics that should be displayed
+    """
+    # Define asset-specific metric mappings
+    ASSET_METRIC_MAP = {
+        "multifamily": {
+            "all": {  # Common to all multifamily subclasses
+                "leverage": ["ltv", "dscr", "debt_yield", "interest_rate"],
+                "valuation": ["cap_rate", "exit_cap", "price_per_unit"],
+                "operating": ["occupancy", "expense_ratio", "noi_growth", "replacement_reserves"],
+                "revenue": ["avg_rent", "market_rent", "rent_growth", "concessions"],
+                "physical": ["units", "avg_unit_size", "parking_ratio"]
+            },
+            "garden_lowrise": {},
+            "midrise": {},
+            "highrise": {"additional": ["concierge_cost", "amenity_ratio"]},
+            "student": {"additional": ["beds_per_unit", "summer_occupancy"]},
+            "senior": {"additional": ["care_level", "medicare_mix"]}
+        },
+        "office": {
+            "all": {
+                "leverage": ["ltv", "dscr", "debt_yield", "interest_rate"],
+                "valuation": ["cap_rate", "exit_cap", "price_psf"],
+                "operating": ["occupancy", "expense_ratio", "noi_growth"],
+                "leasing": ["walt", "tenant_improvement", "leasing_commission", "renewal_probability"],
+                "physical": ["gla_sf", "floor_plate", "parking_ratio"]
+            },
+            "cbd_a_trophy": {},
+            "cbd_b_commodity": {},
+            "suburban": {},
+            "medical": {"additional": ["hospital_affiliation", "medicaid_mix"]},
+            "life_sciences": {"additional": ["lab_space_pct", "power_density"]}
+        },
+        "industrial": {
+            "all": {
+                "leverage": ["ltv", "dscr", "debt_yield", "interest_rate"],
+                "valuation": ["cap_rate", "exit_cap", "price_psf"],
+                "operating": ["occupancy", "expense_ratio", "noi_growth"],
+                "physical": ["clear_height", "dock_doors", "drive_in_doors", "power_density"],
+                "location": ["distance_to_port", "distance_to_airport", "highway_access"]
+            },
+            "bulk_warehouse": {"additional": ["cross_dock_capable", "trailer_parking"]},
+            "light_industrial": {"additional": ["office_finish_pct"]},
+            "flex": {"additional": ["office_percentage", "loading_ratio"]},
+            "cold_storage": {"additional": ["temperature_zones", "refrigeration_redundancy"]},
+            "data_center": {"additional": ["power_capacity_mw", "cooling_redundancy", "fiber_connectivity"]}
+        },
+        "retail": {
+            "all": {
+                "leverage": ["ltv", "dscr", "debt_yield", "interest_rate"],
+                "valuation": ["cap_rate", "exit_cap", "price_psf"],
+                "operating": ["occupancy", "expense_ratio", "noi_growth"],
+                "sales": ["sales_psf", "rent_to_sales"],
+                "tenant": ["anchor_tenant", "anchor_remaining_term"]
+            },
+            "power_center": {},
+            "neighborhood_center": {"additional": ["grocery_anchor"]},
+            "lifestyle_center": {"additional": ["restaurant_pct", "entertainment_pct"]},
+            "single_tenant_nnn": {"additional": ["lease_term_remaining", "rent_escalations"]}
+        },
+        "hospitality": {
+            "all": {
+                "leverage": ["ltv", "dscr", "debt_yield", "interest_rate"],
+                "valuation": ["cap_rate", "exit_cap", "price_per_key"],
+                "operating": ["occupancy", "adr", "revpar", "gop_margin"],
+                "physical": ["keys", "meeting_space_sf"],
+                "brand": ["brand_flag", "franchise_fee", "pip_required"]
+            },
+            "limited_service": {},
+            "full_service": {"additional": ["banquet_capacity", "room_service"]},
+            "luxury": {"additional": ["michelin_restaurants", "butler_service"]},
+            "resort": {"additional": ["golf_courses", "seasonality"]}
+        }
+    }
+
+    # Get metrics for the asset class
+    if asset_class not in ASSET_METRIC_MAP:
+        return {
+            "💰 Leverage & Debt": ["ltv", "dscr", "debt_yield", "interest_rate"],
+            "📊 Valuation": ["cap_rate", "exit_cap"],
+            "🏢 Operating": ["occupancy", "expense_ratio", "noi_growth"]
+        }
+
+    asset_metrics = ASSET_METRIC_MAP[asset_class]
+    result = {}
+
+    # Add common metrics
+    if "all" in asset_metrics:
+        for category, metrics in asset_metrics["all"].items():
+            display_category = {
+                "leverage": "💰 Leverage & Debt",
+                "valuation": "📊 Valuation & Returns",
+                "operating": "🏢 Operating Metrics",
+                "revenue": "💵 Revenue Metrics",
+                "physical": "🏗️ Physical Characteristics",
+                "leasing": "📝 Leasing Metrics",
+                "tenant": "👥 Tenant Metrics",
+                "location": "📍 Location Factors",
+                "sales": "💳 Sales Performance",
+                "brand": "🏨 Brand & Franchise"
+            }.get(category, f"📋 {category.title()}")
+            result[display_category] = metrics
+
+    # Add subclass-specific metrics
+    if subclass in asset_metrics and "additional" in asset_metrics[subclass]:
+        result["🎯 Asset-Specific"] = asset_metrics[subclass]["additional"]
+
+    # Filter by available benchmarks if they exist
+    if asset_class in BENCHMARK_DATA and subclass in BENCHMARK_DATA[asset_class]:
+        available_benchmarks = set(BENCHMARK_DATA[asset_class][subclass].keys())
+        filtered_result = {}
+        for category, metrics in result.items():
+            filtered_metrics = [m for m in metrics if m in available_benchmarks]
+            if filtered_metrics:
+                filtered_result[category] = filtered_metrics
+        return filtered_result
+
+    return result
 
 def calculate_dscr(noi: float, loan_amount: float, rate: float, amort_years: int) -> float:
     """Calculate Debt Service Coverage Ratio"""
@@ -262,26 +412,44 @@ def render_asset_specific_fields(asset_class: str, subclass: str = None) -> Dict
     st.markdown("### 🏗️ Asset-Specific Details")
 
     if asset_class == "Office":
+        # Get relevant metrics for office and filter display
+        asset_class_lower = "office"
+        relevant_metrics = get_all_metrics_for_asset_class(asset_class_lower, subclass or "suburban")
+        all_relevant_metrics = set()
+        for category_metrics in relevant_metrics.values():
+            all_relevant_metrics.update(category_metrics)
+
         col1, col2, col3 = st.columns(3)
 
         with col1:
-            gla_sf = st.number_input(
-                "GLA (SF)",
-                min_value=0,
-                value=st.session_state.get('office_gla', 100000),
-                step=1000,
-                key='office_gla',
-                help="Gross Leasable Area in square feet"
-            )
-            walt_years = st.number_input(
-                "WALT (years)",
-                min_value=0.0,
-                max_value=20.0,
-                value=st.session_state.get('office_walt', 5.5),
-                step=0.5,
-                key='office_walt',
-                help="Weighted Average Lease Term"
-            )
+            # Always show GLA for office
+            if 'gla_sf' in all_relevant_metrics:
+                gla_sf = st.number_input(
+                    "GLA (SF)",
+                    min_value=0,
+                    value=st.session_state.get('office_gla', 100000),
+                    step=1000,
+                    key='office_gla',
+                    help="Gross Leasable Area in square feet"
+                )
+            else:
+                gla_sf = 100000
+
+            # Show WALT for office
+            if 'walt' in all_relevant_metrics:
+                walt_years = st.number_input(
+                    "WALT (years)",
+                    min_value=0.0,
+                    max_value=20.0,
+                    value=st.session_state.get('office_walt', 5.5),
+                    step=0.5,
+                    key='office_walt',
+                    help="Weighted Average Lease Term"
+                )
+            else:
+                walt_years = 5.5
+
+            # Show tenant count
             tenant_count = st.number_input(
                 "Tenant Count",
                 min_value=1,
@@ -291,22 +459,28 @@ def render_asset_specific_fields(asset_class: str, subclass: str = None) -> Dict
             )
 
         with col2:
-            ti_new_psf = st.number_input(
-                "TI New ($/SF)",
-                min_value=0.0,
-                value=st.session_state.get('office_ti_new', 75.0),
-                step=5.0,
-                key='office_ti_new',
-                help="Tenant Improvement allowance for new leases"
-            )
-            ti_renewal_psf = st.number_input(
-                "TI Renewal ($/SF)",
-                min_value=0.0,
-                value=st.session_state.get('office_ti_renewal', 25.0),
-                step=5.0,
-                key='office_ti_renewal',
-                help="Tenant Improvement allowance for renewals"
-            )
+            # Show TI only if in relevant metrics
+            if 'tenant_improvement' in all_relevant_metrics:
+                ti_new_psf = st.number_input(
+                    "TI New ($/SF)",
+                    min_value=0.0,
+                    value=st.session_state.get('office_ti_new', 75.0),
+                    step=5.0,
+                    key='office_ti_new',
+                    help="Tenant Improvement allowance for new leases"
+                )
+                ti_renewal_psf = st.number_input(
+                    "TI Renewal ($/SF)",
+                    min_value=0.0,
+                    value=st.session_state.get('office_ti_renewal', 25.0),
+                    step=5.0,
+                    key='office_ti_renewal',
+                    help="Tenant Improvement allowance for renewals"
+                )
+            else:
+                ti_new_psf = 0.0
+                ti_renewal_psf = 0.0
+
             top5_tenants_pct = st.number_input(
                 "Top 5 Tenants (%)",
                 min_value=0.0,
@@ -318,24 +492,29 @@ def render_asset_specific_fields(asset_class: str, subclass: str = None) -> Dict
             )
 
         with col3:
-            lc_new_pct = st.number_input(
-                "LC New (%)",
-                min_value=0.0,
-                max_value=10.0,
-                value=st.session_state.get('office_lc_new', 5.5),
-                step=0.5,
-                key='office_lc_new',
-                help="Leasing Commission for new leases"
-            )
-            lc_renewal_pct = st.number_input(
-                "LC Renewal (%)",
-                min_value=0.0,
-                max_value=10.0,
-                value=st.session_state.get('office_lc_renewal', 2.5),
-                step=0.5,
-                key='office_lc_renewal',
-                help="Leasing Commission for renewals"
-            )
+            # Show LC only if in relevant metrics
+            if 'leasing_commission' in all_relevant_metrics:
+                lc_new_pct = st.number_input(
+                    "LC New (%)",
+                    min_value=0.0,
+                    max_value=10.0,
+                    value=st.session_state.get('office_lc_new', 5.5),
+                    step=0.5,
+                    key='office_lc_new',
+                    help="Leasing Commission for new leases"
+                )
+                lc_renewal_pct = st.number_input(
+                    "LC Renewal (%)",
+                    min_value=0.0,
+                    max_value=10.0,
+                    value=st.session_state.get('office_lc_renewal', 2.5),
+                    step=0.5,
+                    key='office_lc_renewal',
+                    help="Leasing Commission for renewals"
+                )
+            else:
+                lc_new_pct = 0.0
+                lc_renewal_pct = 0.0
 
         specific_data = {
             'gla_sf': gla_sf,
@@ -470,6 +649,13 @@ def render_asset_specific_fields(asset_class: str, subclass: str = None) -> Dict
         }
 
     elif asset_class == "Industrial":
+        # Get relevant metrics for industrial and filter display
+        asset_class_lower = "industrial"
+        relevant_metrics = get_all_metrics_for_asset_class(asset_class_lower, subclass or "bulk_warehouse")
+        all_relevant_metrics = set()
+        for category_metrics in relevant_metrics.values():
+            all_relevant_metrics.update(category_metrics)
+
         col1, col2, col3 = st.columns(3)
 
         with col1:
@@ -480,8 +666,11 @@ def render_asset_specific_fields(asset_class: str, subclass: str = None) -> Dict
                 step=5000,
                 key='ind_building_sf'
             )
-            clear_height = st.number_input(
-                "Clear Height (ft)",
+
+            # Always show clear height for industrial
+            if 'clear_height' in all_relevant_metrics:
+                clear_height = st.number_input(
+                    "Clear Height (ft)",
                 min_value=0,
                 max_value=60,
                 value=st.session_state.get('ind_clear_height', 32),
@@ -490,41 +679,86 @@ def render_asset_specific_fields(asset_class: str, subclass: str = None) -> Dict
                 help="Clear ceiling height in feet"
             )
 
+            else:
+                clear_height = 32  # Default if not relevant
+
         with col2:
-            dock_doors = st.number_input(
-                "Dock Doors (count)",
-                min_value=0,
-                value=st.session_state.get('ind_dock_doors', 20),
-                step=1,
-                key='ind_dock_doors'
-            )
-            office_finish_pct = st.number_input(
-                "Office Finish (%)",
-                min_value=0.0,
-                max_value=100.0,
-                value=st.session_state.get('ind_office_finish', 8.0),
-                step=1.0,
-                key='ind_office_finish',
-                help="Percentage of building that is office space"
-            )
+            # Only show dock doors for warehouse types
+            if 'dock_doors' in all_relevant_metrics:
+                dock_doors = st.number_input(
+                    "Dock Doors (count)",
+                    min_value=0,
+                    value=st.session_state.get('ind_dock_doors', 20),
+                    step=1,
+                    key='ind_dock_doors'
+                )
+            else:
+                dock_doors = 0
+
+            # Show office finish for flex/light industrial
+            if 'office_finish_pct' in all_relevant_metrics or 'office_percentage' in all_relevant_metrics:
+                office_finish_pct = st.number_input(
+                    "Office Finish (%)",
+                    min_value=0.0,
+                    max_value=100.0,
+                    value=st.session_state.get('ind_office_finish', 8.0),
+                    step=1.0,
+                    key='ind_office_finish',
+                    help="Percentage of building that is office space"
+                )
+            else:
+                office_finish_pct = 0
 
         with col3:
-            cold_storage = st.checkbox(
-                "Cold Storage",
-                value=st.session_state.get('ind_cold_storage', False),
-                key='ind_cold_storage',
-                help="Is this a cold storage facility?"
-            )
+            # Only show cold storage for cold storage subclass
+            if subclass == "cold_storage":
+                temperature_zones = st.number_input(
+                    "Temperature Zones",
+                    min_value=1,
+                    max_value=5,
+                    value=st.session_state.get('ind_temp_zones', 2),
+                    step=1,
+                    key='ind_temp_zones',
+                    help="Number of different temperature zones"
+                )
+                cold_storage = True
+            else:
+                temperature_zones = 0
+                cold_storage = False
+
+            # Show power density for data centers
+            if subclass == "data_center" and 'power_capacity_mw' in all_relevant_metrics:
+                power_capacity = st.number_input(
+                    "Power Capacity (MW)",
+                    min_value=0.0,
+                    value=st.session_state.get('ind_power_mw', 5.0),
+                    step=0.5,
+                    key='ind_power_mw',
+                    help="Total power capacity in megawatts"
+                )
+            else:
+                power_capacity = 0
 
         specific_data = {
             'building_sf': building_sf,
-            'clear_height_ft': clear_height,
-            'dock_doors': dock_doors,
-            'office_finish_pct': office_finish_pct / 100,
-            'cold_storage': cold_storage
+            'clear_height_ft': clear_height if 'clear_height' in all_relevant_metrics else None,
+            'dock_doors': dock_doors if 'dock_doors' in all_relevant_metrics else None,
+            'office_finish_pct': office_finish_pct / 100 if office_finish_pct > 0 else None,
+            'cold_storage': cold_storage,
+            'temperature_zones': temperature_zones if temperature_zones > 0 else None,
+            'power_capacity_mw': power_capacity if power_capacity > 0 else None
         }
+        # Remove None values
+        specific_data = {k: v for k, v in specific_data.items() if v is not None}
 
     elif asset_class == "Hotel" or asset_class == "Hospitality":
+        # Get relevant metrics for hospitality and filter display
+        asset_class_lower = "hospitality"
+        relevant_metrics = get_all_metrics_for_asset_class(asset_class_lower, subclass or "limited_service")
+        all_relevant_metrics = set()
+        for category_metrics in relevant_metrics.values():
+            all_relevant_metrics.update(category_metrics)
+
         col1, col2, col3 = st.columns(3)
 
         with col1:
@@ -933,12 +1167,45 @@ def render_input_section():
                         # Get benchmark library
                         benchmark_library = load_benchmarks()
 
-                        # Call the extraction and analysis function
+                        # Create OCR blocks structure if we can detect tables in text
+                        ocr_blocks = []
+                        # Simple table detection - look for lines with consistent delimiters
+                        lines = ocr_text.split('\n')
+                        for i, line in enumerate(lines):
+                            # Check if line looks like table data (has multiple columns)
+                            if any(delimiter in line for delimiter in ['|', '\t', '  ']) and len(line.split()) > 2:
+                                ocr_blocks.append({
+                                    'text': line,
+                                    'type': 'table_row',
+                                    'line': i,
+                                    'bbox': {'x': 0, 'y': i * 20}  # Simple positioning
+                                })
+                            # Check for headers
+                            elif any(header in line.upper() for header in ['METRIC', 'VALUE', 'FINANCIAL', 'DEBT', 'TERMS']):
+                                ocr_blocks.append({
+                                    'text': line,
+                                    'type': 'header',
+                                    'line': i,
+                                    'bbox': {'x': 0, 'y': i * 20}
+                                })
+
+                        # Get benchmark overrides for this asset class/subclass
+                        benchmark_overrides = None
+                        if 'benchmark_overrides' in st.session_state:
+                            asset_class = st.session_state.get('asset_class')
+                            subclass = st.session_state.get('subclass')
+                            if (asset_class in st.session_state.benchmark_overrides and
+                                subclass in st.session_state.benchmark_overrides[asset_class]):
+                                benchmark_overrides = st.session_state.benchmark_overrides[asset_class][subclass]
+
+                        # Call the extraction and analysis function with OCR blocks and overrides
                         extracted_data = extract_and_analyze(
                             asset_class=st.session_state.get('asset_class'),
                             subclass=st.session_state.get('subclass'),
                             raw_text=ocr_text,
-                            benchmark_library=benchmark_library
+                            benchmark_library=benchmark_library,
+                            ocr_blocks=ocr_blocks if ocr_blocks else None,
+                            benchmark_overrides=benchmark_overrides
                         )
 
                         # Store results in session state
@@ -1869,57 +2136,77 @@ def render_analysis(data: Dict):
         if data["asset_class"] == "Office" and 'gla_sf' in data:
             col1, col2, col3, col4 = st.columns(4)
             with col1:
-                st.metric("GLA", f"{data.get('gla_sf', 0):,.0f} SF")
+                st.metric("GLA", f"{data.get('gla_sf', 0):,.0f} SF",
+                         help=create_metric_help_text("square_feet"))
             with col2:
-                st.metric("WALT", f"{data.get('walt_years', 0):.1f} years")
+                st.metric("WALT", f"{data.get('walt_years', 0):.1f} years",
+                         help=create_metric_help_text("walt"))
             with col3:
-                st.metric("TI New", f"${data.get('ti_new_psf', 0):.0f}/SF")
+                st.metric("TI New", f"${data.get('ti_new_psf', 0):.0f}/SF",
+                         help=create_metric_help_text("tenant_improvement"))
             with col4:
-                st.metric("Top 5 Tenants", f"{data.get('top5_tenants_pct', 0)*100:.0f}%")
+                st.metric("Top 5 Tenants", f"{data.get('top5_tenants_pct', 0)*100:.0f}%",
+                         help="Concentration risk from largest tenants")
 
         elif data["asset_class"] == "Multifamily" and 'units' in data:
             col1, col2, col3, col4 = st.columns(4)
             with col1:
-                st.metric("Units", f"{data.get('units', 0):,}")
+                st.metric("Units", f"{data.get('units', 0):,}",
+                         help=create_metric_help_text("units"))
             with col2:
-                st.metric("Avg Rent", f"${data.get('avg_rent', 0):,.0f}")
+                st.metric("Avg Rent", f"${data.get('avg_rent', 0):,.0f}",
+                         help=create_metric_help_text("avg_rent"))
             with col3:
-                st.metric("Occupancy", f"{data.get('occupancy_pct', 0)*100:.1f}%")
+                st.metric("Occupancy", f"{data.get('occupancy_pct', 0)*100:.1f}%",
+                         help=create_metric_help_text("occupancy"))
             with col4:
-                st.metric("Expense Ratio", f"{data.get('expense_ratio', 0)*100:.1f}%")
+                st.metric("Expense Ratio", f"{data.get('expense_ratio', 0)*100:.1f}%",
+                         help=create_metric_help_text("expense_ratio"))
 
         elif data["asset_class"] == "Industrial" and 'building_sf' in data:
             col1, col2, col3, col4 = st.columns(4)
             with col1:
-                st.metric("Building SF", f"{data.get('building_sf', 0):,.0f}")
+                st.metric("Building SF", f"{data.get('building_sf', 0):,.0f}",
+                         help=create_metric_help_text("square_feet"))
             with col2:
-                st.metric("Clear Height", f"{data.get('clear_height_ft', 0)} ft")
+                st.metric("Clear Height", f"{data.get('clear_height_ft', 0)} ft",
+                         help=create_metric_help_text("clear_height"))
             with col3:
-                st.metric("Dock Doors", f"{data.get('dock_doors', 0)}")
+                st.metric("Dock Doors", f"{data.get('dock_doors', 0)}",
+                         help="Loading dock positions for truck access")
             with col4:
-                st.metric("Office %", f"{data.get('office_finish_pct', 0)*100:.1f}%")
+                st.metric("Office %", f"{data.get('office_finish_pct', 0)*100:.1f}%",
+                         help="Percentage of space finished as office")
 
         elif data["asset_class"] == "Retail" and 'gla_sf' in data:
             col1, col2, col3, col4 = st.columns(4)
             with col1:
-                st.metric("GLA", f"{data.get('gla_sf', 0):,.0f} SF")
+                st.metric("GLA", f"{data.get('gla_sf', 0):,.0f} SF",
+                         help=create_metric_help_text("square_feet"))
             with col2:
-                st.metric("Anchor", data.get('anchor_tenant', 'N/A'))
+                st.metric("Anchor", data.get('anchor_tenant', 'N/A'),
+                         help=create_metric_help_text("anchor_tenant"))
             with col3:
-                st.metric("Anchor Term", f"{data.get('anchor_term_years', 0):.1f} yrs")
+                st.metric("Anchor Term", f"{data.get('anchor_term_years', 0):.1f} yrs",
+                         help="Remaining lease term for anchor tenant")
             with col4:
-                st.metric("Sales/SF", f"${data.get('sales_psf', 0):.0f}")
+                st.metric("Sales/SF", f"${data.get('sales_psf', 0):.0f}",
+                         help=create_metric_help_text("sales_psf"))
 
         elif data["asset_class"] in ["Hotel", "Hospitality"] and 'keys' in data:
             col1, col2, col3, col4 = st.columns(4)
             with col1:
-                st.metric("Keys", f"{data.get('keys', 0):,}")
+                st.metric("Keys", f"{data.get('keys', 0):,}",
+                         help=create_metric_help_text("keys"))
             with col2:
-                st.metric("ADR", f"${data.get('adr', 0):.0f}")
+                st.metric("ADR", f"${data.get('adr', 0):.0f}",
+                         help=create_metric_help_text("adr"))
             with col3:
-                st.metric("RevPAR", f"${data.get('revpar', 0):.0f}")
+                st.metric("RevPAR", f"${data.get('revpar', 0):.0f}",
+                         help=create_metric_help_text("revpar"))
             with col4:
-                st.metric("GOP Margin", f"{data.get('gop_margin_pct', 0)*100:.1f}%")
+                st.metric("GOP Margin", f"{data.get('gop_margin_pct', 0)*100:.1f}%",
+                         help=create_metric_help_text("gop_margin"))
 
     # Check if we have enhanced extracted data for tabbed interface
     if extracted_data:
@@ -1998,29 +2285,150 @@ def render_analysis(data: Dict):
             # Tab 2: What We Know
             st.subheader("✅ Confirmed Data Points")
 
-            if 'known' in extracted_data and extracted_data['known']:
+            # Get asset class and subclass for filtering
+            asset_class = extracted_data.get('asset_class', 'office').lower()
+            subclass = extracted_data.get('subclass', '').lower() or 'general'
+
+            # Get filtered metrics for this asset class
+            relevant_metrics = get_all_metrics_for_asset_class(asset_class, subclass)
+            all_relevant_metrics = set()
+            for category_metrics in relevant_metrics.values():
+                all_relevant_metrics.update(category_metrics)
+
+            # Check for new field_confidence structure
+            if 'field_confidence' in extracted_data and extracted_data['field_confidence']:
+                known_items = []
+
+                # Process ingested fields with confidence
+                ingested = extracted_data.get('ingested', {})
+                field_confidence = extracted_data['field_confidence']
+
+                for field_name, value in ingested.items():
+                    # Skip fields not relevant to this asset class
+                    if field_name.lower() not in all_relevant_metrics:
+                        continue
+
+                    if field_name in field_confidence:
+                        conf_info = field_confidence[field_name]
+                        confidence_level = conf_info.get('level', 'Medium')
+                        reason = conf_info.get('reason', 'Found in document')
+
+                        # Format value for display
+                        if isinstance(value, float):
+                            if field_name.endswith('_pct') or field_name.endswith('_rate'):
+                                formatted_value = f"{value:.2%}"
+                            elif value > 1000:
+                                formatted_value = f"${value:,.0f}"
+                            else:
+                                formatted_value = f"{value:.3f}"
+                        else:
+                            formatted_value = str(value)
+
+                        # Set badge color and icon based on confidence
+                        if confidence_level == 'High':
+                            badge_color = '#10b981'
+                            icon = '🟢'
+                        elif confidence_level == 'Medium':
+                            badge_color = '#f59e0b'
+                            icon = '🟡'
+                        else:
+                            badge_color = '#ef4444'
+                            icon = '🔴'
+
+                        known_items.append({
+                            "Field": field_name.replace('_', ' ').title(),
+                            "Value": formatted_value,
+                            "Confidence": f"""<span style='background-color: {badge_color};
+                                             color: white; padding: 3px 10px; border-radius: 12px;
+                                             font-size: 11px; font-weight: 500;'>{icon} {confidence_level}</span>""",
+                            "Source": f"<span style='color: #6b7280; font-size: 11px;'>{reason}</span>"
+                        })
+
+                # Also process derived fields
+                derived = extracted_data.get('derived', {})
+                for field_name, value in derived.items():
+                    # Skip fields not relevant to this asset class
+                    if field_name.lower() not in all_relevant_metrics:
+                        continue
+
+                    if not field_name.endswith('_calc') and field_name in field_confidence:
+                        conf_info = field_confidence[field_name]
+                        confidence_level = conf_info.get('level', 'Low')
+                        reason = conf_info.get('reason', 'Calculated')
+
+                        # Format value
+                        if isinstance(value, float):
+                            if field_name in ['cap_rate', 'dscr', 'ltv', 'debt_yield']:
+                                formatted_value = f"{value:.3f}"
+                            elif field_name in ['exit_value', 'net_sale_proceeds']:
+                                formatted_value = f"${value:,.0f}"
+                            else:
+                                formatted_value = f"{value:.3f}"
+                        else:
+                            formatted_value = str(value)
+
+                        # Badge styling for calculated fields
+                        badge_color = '#9333ea'  # Purple for calculated
+                        icon = '🔮'
+
+                        known_items.append({
+                            "Field": field_name.replace('_', ' ').title(),
+                            "Value": formatted_value,
+                            "Confidence": f"""<span style='background-color: {badge_color};
+                                             color: white; padding: 3px 10px; border-radius: 12px;
+                                             font-size: 11px; font-weight: 500;'>{icon} Calculated</span>""",
+                            "Source": f"<span style='color: #6b7280; font-size: 11px;'>{reason}</span>"
+                        })
+
+                if known_items:
+                    df_known = pd.DataFrame(known_items)
+                    # Display as HTML table with enhanced styling
+                    table_html = df_known.to_html(escape=False, index=False)
+                    st.markdown(f"""
+                    <style>
+                    table {{
+                        width: 100%;
+                        border-collapse: collapse;
+                    }}
+                    th {{
+                        background-color: #f3f4f6;
+                        padding: 12px;
+                        text-align: left;
+                        font-weight: 600;
+                    }}
+                    td {{
+                        padding: 10px 12px;
+                        border-bottom: 1px solid #e5e7eb;
+                    }}
+                    tr:hover {{
+                        background-color: #f9fafb;
+                    }}
+                    </style>
+                    {table_html}
+                    """, unsafe_allow_html=True)
+
+                    # Add legend
+                    st.caption("""
+                    **Confidence Levels:**
+                    🟢 **High** - Found in table or with explicit label |
+                    🟡 **Medium** - Pattern matched in text |
+                    🔴 **Low** - Inferred or using defaults |
+                    🔮 **Calculated** - Derived from other fields
+                    """)
+                else:
+                    st.info("No data points extracted yet.")
+
+            # Fallback to old structure if field_confidence not available
+            elif 'known' in extracted_data and extracted_data['known']:
                 known_items = []
                 for item in extracted_data['known']:
-                    # Parse confidence level
-                    confidence = item.get('confidence', 'Medium')
-                    if isinstance(confidence, (int, float)):
-                        confidence = 'High' if confidence > 0.8 else 'Medium' if confidence > 0.5 else 'Low'
-
-                    # Set badge color based on confidence
-                    badge_color = '#10b981' if confidence == 'High' else '#f59e0b' if confidence == 'Medium' else '#ef4444'
-
                     known_items.append({
-                        "Field": item.get('field', 'Unknown'),
-                        "Value": item.get('value', 'N/A'),
-                        "Confidence_HTML": f"""<span style='background-color: {badge_color};
-                                             color: white; padding: 2px 8px; border-radius: 4px;
-                                             font-size: 12px;'>{confidence}</span>"""
+                        "Field": item if isinstance(item, str) else item.get('field', 'Unknown'),
+                        "Value": item.get('value', 'N/A') if isinstance(item, dict) else 'N/A',
+                        "Confidence": "Medium"
                     })
-
                 df_known = pd.DataFrame(known_items)
-
-                # Display as HTML table with styled confidence badges
-                st.markdown(df_known.to_html(escape=False, index=False), unsafe_allow_html=True)
+                st.dataframe(df_known, use_container_width=True, hide_index=True)
             else:
                 st.info("No extracted data points available. Upload a document or enter data manually.")
 
@@ -2029,17 +2437,133 @@ def render_analysis(data: Dict):
             st.subheader("❌ Missing Data Points")
 
             if 'unknown' in extracted_data and extracted_data['unknown']:
-                for missing_item in extracted_data['unknown']:
-                    with st.expander(f"📍 {missing_item.get('metric', 'Unknown Metric')}"):
-                        st.write(f"**Required fields:**")
-                        if 'required_fields' in missing_item:
-                            for field in missing_item['required_fields']:
-                                st.write(f"• {field}")
-                        else:
-                            st.write("• Data needed to calculate this metric")
+                # Group unknown items by type
+                derived_metrics = []
+                primary_fields = []
 
-                        if 'explanation' in missing_item:
-                            st.info(missing_item['explanation'])
+                for item in extracted_data['unknown']:
+                    if 'missing' in item and item['missing']:
+                        derived_metrics.append(item)
+                    else:
+                        primary_fields.append(item)
+
+                # Display derived metrics that cannot be calculated
+                if derived_metrics:
+                    st.markdown("### 📊 **Metrics That Cannot Be Calculated**")
+                    for item in derived_metrics:
+                        metric_name = item.get('metric', 'Unknown').replace('_', ' ').title()
+                        missing_fields = item.get('missing', [])
+                        explanation = item.get('because', '')
+
+                        # Create expandable card for each metric
+                        with st.expander(f"🔍 **{metric_name}**", expanded=False):
+                            # Show explanation
+                            st.info(f"💡 {explanation}")
+
+                            # Show missing fields
+                            if missing_fields:
+                                st.write("**Missing Required Fields:**")
+                                cols = st.columns(2)
+                                for i, field in enumerate(missing_fields):
+                                    with cols[i % 2]:
+                                        field_display = field.replace('_', ' ').title()
+                                        st.markdown(f"""
+                                        <div style='background: #fee2e2; padding: 8px 12px;
+                                                  border-radius: 8px; margin: 4px 0;
+                                                  border-left: 3px solid #ef4444;'>
+                                            <span style='color: #991b1b; font-weight: 500;'>
+                                                ❌ {field_display}
+                                            </span>
+                                        </div>
+                                        """, unsafe_allow_html=True)
+
+                            # Show calculation formula if available
+                            formula_map = {
+                                "irr": "IRR = Solve for r where: NPV = 0 = -Equity + Σ(CFt/(1+r)^t)",
+                                "equity_multiple": "Equity Multiple = Total Distributions ÷ Initial Equity",
+                                "exit_value": "Exit Value = NOI(Year N) × (1 + Growth)^N ÷ Exit Cap",
+                                "dscr": "DSCR = Net Operating Income ÷ Annual Debt Service",
+                                "ltv": "LTV = Loan Amount ÷ Purchase Price",
+                                "cap_rate": "Cap Rate = NOI ÷ Purchase Price"
+                            }
+
+                            if item['metric'] in formula_map:
+                                st.code(formula_map[item['metric']], language='text')
+
+                # Display missing primary fields
+                if primary_fields:
+                    st.markdown("---")
+                    st.markdown("### 📝 **Missing Primary Data Fields**")
+
+                    # Group by importance
+                    critical_fields = []
+                    optional_fields = []
+
+                    for item in primary_fields:
+                        if any(keyword in item.get('because', '').lower()
+                               for keyword in ['critical', 'required', 'essential']):
+                            critical_fields.append(item)
+                        else:
+                            optional_fields.append(item)
+
+                    if critical_fields:
+                        st.markdown("**🔴 Critical Fields:**")
+                        for item in critical_fields:
+                            field_name = item.get('metric', '').replace('_', ' ').title()
+                            reason = item.get('because', item.get('description', ''))
+                            st.markdown(f"""
+                            <div style='background: #fef2f2; padding: 12px;
+                                      border-radius: 8px; margin: 8px 0;
+                                      border-left: 4px solid #dc2626;'>
+                                <strong style='color: #7f1d1d;'>{field_name}</strong><br/>
+                                <span style='color: #991b1b; font-size: 0.9em;'>{reason}</span>
+                            </div>
+                            """, unsafe_allow_html=True)
+
+                    if optional_fields:
+                        st.markdown("**🟡 Additional Fields:**")
+                        for item in optional_fields:
+                            field_name = item.get('metric', '').replace('_', ' ').title()
+                            reason = item.get('because', item.get('description', ''))
+                            st.markdown(f"""
+                            <div style='background: #fffbeb; padding: 12px;
+                                      border-radius: 8px; margin: 8px 0;
+                                      border-left: 4px solid #f59e0b;'>
+                                <strong style='color: #78350f;'>{field_name}</strong><br/>
+                                <span style='color: #92400e; font-size: 0.9em;'>{reason}</span>
+                            </div>
+                            """, unsafe_allow_html=True)
+
+                # Show completeness score
+                if 'completeness' in extracted_data:
+                    st.markdown("---")
+                    completeness = extracted_data['completeness']
+                    percent = completeness.get('percent', 0)
+                    filled = completeness.get('filled', 0)
+                    total = completeness.get('required', 0)
+
+                    # Progress bar color based on percentage
+                    if percent >= 80:
+                        color = '#10b981'
+                    elif percent >= 60:
+                        color = '#f59e0b'
+                    else:
+                        color = '#ef4444'
+
+                    st.markdown(f"""
+                    <div style='background: #f3f4f6; padding: 1rem; border-radius: 8px;'>
+                        <h4 style='margin: 0 0 0.5rem 0;'>📊 Data Completeness</h4>
+                        <div style='background: #e5e7eb; border-radius: 20px; height: 30px; position: relative;'>
+                            <div style='background: {color}; border-radius: 20px; height: 100%;
+                                      width: {percent}%; transition: width 0.5s ease;'></div>
+                            <span style='position: absolute; top: 50%; left: 50%;
+                                       transform: translate(-50%, -50%); font-weight: bold;'>
+                                {percent:.1f}% ({filled}/{total} fields)
+                            </span>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
             else:
                 st.success("✅ All critical data points have been captured!")
 
@@ -2047,8 +2571,25 @@ def render_analysis(data: Dict):
             # Tab 4: Risk Analysis
             st.subheader("⚠️ Risk Assessment")
 
+            # Get asset class and subclass for filtering
+            asset_class = extracted_data.get('asset_class', 'office').lower()
+            subclass = extracted_data.get('subclass', '').lower() or 'general'
+
+            # Get filtered metrics for this asset class
+            relevant_metrics = get_all_metrics_for_asset_class(asset_class, subclass)
+            all_relevant_metrics = set()
+            for category_metrics in relevant_metrics.values():
+                all_relevant_metrics.update(category_metrics)
+
             if 'risks_ranked' in extracted_data and extracted_data['risks_ranked']:
+                # Filter risks to only show relevant metrics
+                relevant_risks = []
                 for risk in extracted_data['risks_ranked']:
+                    risk_metric = risk.get('metric', '').lower().replace(' ', '_')
+                    if risk_metric in all_relevant_metrics:
+                        relevant_risks.append(risk)
+
+                for risk in relevant_risks:
                     severity = risk.get('severity', 'MEDIUM')
 
                     # Color coding for risk cards
@@ -2090,6 +2631,9 @@ def render_analysis(data: Dict):
                             """, unsafe_allow_html=True)
 
                     st.markdown("</ol></div>", unsafe_allow_html=True)
+
+                if not relevant_risks:
+                    st.info("No risks identified for this asset class.")
             else:
                 st.info("No risk analysis available. Complete data entry for risk assessment.")
 
@@ -2196,9 +2740,24 @@ def render_analysis(data: Dict):
             st.subheader("🔍 Benchmark Comparison")
 
             if 'bench_compare' in extracted_data and extracted_data['bench_compare']:
+                # Get asset class and subclass from extracted data
+                asset_class = extracted_data.get('asset_class', 'office').lower()
+                subclass = extracted_data.get('subclass', '').lower() or 'general'
+
+                # Get filtered metrics for this asset class
+                relevant_metrics = get_all_metrics_for_asset_class(asset_class, subclass)
+                all_relevant_metrics = set()
+                for category_metrics in relevant_metrics.values():
+                    all_relevant_metrics.update(category_metrics)
+
                 benchmark_data = []
 
                 for comp in extracted_data['bench_compare']:
+                    # Only include metrics that are relevant to this asset class
+                    metric_name = comp.get('metric', '').lower().replace(' ', '_')
+                    if metric_name not in all_relevant_metrics:
+                        continue  # Skip irrelevant metrics
+
                     # Determine status
                     status = comp.get('status', 'OK')
                     if status == 'OK':
@@ -2219,10 +2778,12 @@ def render_analysis(data: Dict):
                         "Source": comp.get('source', 'Market Data')
                     })
 
-                df_bench = pd.DataFrame(benchmark_data)
-
-                # Display as HTML table with styled status column
-                st.markdown(df_bench.to_html(escape=False, index=False), unsafe_allow_html=True)
+                if benchmark_data:
+                    df_bench = pd.DataFrame(benchmark_data)
+                    # Display as HTML table with styled status column
+                    st.markdown(df_bench.to_html(escape=False, index=False), unsafe_allow_html=True)
+                else:
+                    st.info("No relevant benchmark comparisons for this asset class.")
             else:
                 st.info("Benchmark comparison will be available once deal metrics are calculated.")
 
@@ -2349,22 +2910,314 @@ def main():
 
     with tab2:
         st.header("📚 Industry Benchmarks")
-        st.caption("Source-attributed market data")
+        st.caption("Source-attributed market data with institutional standards")
 
-        benchmark_df = []
-        for asset, metrics in BENCHMARKS.items():
-            for metric, values in metrics.items():
-                benchmark_df.append({
-                    "Asset Class": asset,
-                    "Metric": metric.upper(),
-                    "Minimum": values["min"],
-                    "Preferred": values["preferred"],
-                    "Maximum": values["max"],
-                    "Source": values["source"]
-                })
+        # Asset class and subclass selection
+        col1, col2 = st.columns(2)
+        with col1:
+            selected_asset = st.selectbox(
+                "Select Asset Class",
+                options=list(BENCHMARK_DATA.keys()),
+                format_func=lambda x: x.replace("_", " ").title()
+            )
 
-        df = pd.DataFrame(benchmark_df)
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        with col2:
+            if selected_asset in BENCHMARK_DATA:
+                selected_subclass = st.selectbox(
+                    "Select Property Type",
+                    options=list(BENCHMARK_DATA[selected_asset].keys()),
+                    format_func=lambda x: x.replace("_", " ").title()
+                )
+            else:
+                selected_subclass = None
+
+        if selected_asset and selected_subclass:
+            # Initialize benchmark overrides in session state
+            if 'benchmark_overrides' not in st.session_state:
+                st.session_state.benchmark_overrides = {}
+            if selected_asset not in st.session_state.benchmark_overrides:
+                st.session_state.benchmark_overrides[selected_asset] = {}
+            if selected_subclass not in st.session_state.benchmark_overrides[selected_asset]:
+                st.session_state.benchmark_overrides[selected_asset][selected_subclass] = {}
+
+            # Get benchmarks - use overrides if available, otherwise defaults
+            default_benchmarks = BENCHMARK_DATA[selected_asset][selected_subclass]
+            overrides = st.session_state.benchmark_overrides[selected_asset][selected_subclass]
+
+            # Merge defaults with overrides
+            selected_benchmarks = {}
+            for metric, values in default_benchmarks.items():
+                if metric in overrides:
+                    selected_benchmarks[metric] = overrides[metric]
+                else:
+                    selected_benchmarks[metric] = values
+
+            # Add edit mode toggle and override management
+            col1, col2, col3 = st.columns([2, 1, 1])
+            with col1:
+                edit_mode = st.checkbox("🔧 Edit Benchmarks", help="Enable editing of benchmark values and sources")
+
+            with col2:
+                # Show override count
+                override_count = len(overrides)
+                if override_count > 0:
+                    st.info(f"📝 {override_count} custom overrides active")
+
+            with col3:
+                # Clear overrides button
+                if override_count > 0:
+                    if st.button("🗑️ Clear All Overrides"):
+                        st.session_state.benchmark_overrides[selected_asset][selected_subclass] = {}
+                        st.success("Cleared all benchmark overrides")
+                        st.rerun()
+
+            # Show active overrides if any
+            if overrides and not edit_mode:
+                with st.expander(f"📋 Active Custom Overrides ({override_count})", expanded=False):
+                    override_data = []
+                    for metric, values in overrides.items():
+                        override_data.append({
+                            "Metric": metric.replace("_", " ").title(),
+                            "Min": values[0],
+                            "Preferred": values[1],
+                            "Max": values[2],
+                            "Source": values[3] if len(values) > 3 else "Custom"
+                        })
+                    st.dataframe(pd.DataFrame(override_data), use_container_width=True, hide_index=True)
+
+            # Get filtered metrics for this asset class and subclass
+            metric_groups = get_all_metrics_for_asset_class(selected_asset, selected_subclass)
+
+            # Display metrics in expandable groups
+            for group_name, metric_list in metric_groups.items():
+                # Filter to only metrics that exist in selected benchmarks
+                available_metrics = [m for m in metric_list if m in selected_benchmarks]
+
+                if available_metrics:
+                    with st.expander(f"{group_name} ({len(available_metrics)} metrics)", expanded=("Leverage" in group_name)):
+
+                        if edit_mode:
+                            # EDIT MODE - Create editable dataframe
+                            edit_data = []
+                            metric_map = {}  # Map display names back to metric keys
+
+                            for metric in available_metrics:
+                                if metric in selected_benchmarks:
+                                    bench_data = selected_benchmarks[metric]
+                                    metric_info = get_metric_info(metric)
+                                    unit = metric_info.get("unit", "")
+
+                                    # Store raw values for editing
+                                    display_name = metric.replace("_", " ").title()
+                                    metric_map[display_name] = metric
+
+                                    # Extract raw values (convert percentages back to decimals for consistency)
+                                    if isinstance(bench_data, (list, tuple)):
+                                        min_val = bench_data[0] if len(bench_data) > 0 else 0
+                                        pref_val = bench_data[1] if len(bench_data) > 1 else 0
+                                        max_val = bench_data[2] if len(bench_data) > 2 else 0
+                                        source = bench_data[3] if len(bench_data) > 3 else "Industry Standard"
+                                    else:
+                                        min_val = pref_val = max_val = 0
+                                        source = "Industry Standard"
+
+                                    edit_data.append({
+                                        "Metric": display_name,
+                                        "Min": min_val if unit != "%" else min_val * 100,
+                                        "Preferred": pref_val if unit != "%" else pref_val * 100,
+                                        "Max": max_val if unit != "%" else max_val * 100,
+                                        "Unit": unit,
+                                        "Source": source
+                                    })
+
+                            if edit_data:
+                                df_edit = pd.DataFrame(edit_data)
+
+                                # Use data_editor for editing
+                                edited_df = st.data_editor(
+                                    df_edit,
+                                    use_container_width=True,
+                                    hide_index=True,
+                                    num_rows="fixed",
+                                    disabled=["Metric", "Unit"],
+                                    column_config={
+                                        "Metric": st.column_config.TextColumn(
+                                            "Metric",
+                                            help="Metric name (read-only)"
+                                        ),
+                                        "Min": st.column_config.NumberColumn(
+                                            "Min",
+                                            help="Minimum acceptable value",
+                                            format="%.2f"
+                                        ),
+                                        "Preferred": st.column_config.NumberColumn(
+                                            "Preferred",
+                                            help="Target/preferred value",
+                                            format="%.2f"
+                                        ),
+                                        "Max": st.column_config.NumberColumn(
+                                            "Max",
+                                            help="Maximum acceptable value",
+                                            format="%.2f"
+                                        ),
+                                        "Unit": st.column_config.TextColumn(
+                                            "Unit",
+                                            help="Unit of measurement (read-only)"
+                                        ),
+                                        "Source": st.column_config.TextColumn(
+                                            "Source",
+                                            help="Data source - editable"
+                                        )
+                                    },
+                                    key=f"benchmark_editor_{selected_asset}_{selected_subclass}_{group_name}"
+                                )
+
+                                # Save button to persist changes
+                                if st.button(f"💾 Save Changes", key=f"save_{group_name}"):
+                                    # Update session state with overrides
+                                    for index, row in edited_df.iterrows():
+                                        metric_name = metric_map.get(row['Metric'])
+                                        if metric_name:
+                                            unit = row['Unit']
+                                            # Convert percentages back to decimals
+                                            min_val = row['Min'] / 100 if unit == "%" else row['Min']
+                                            pref_val = row['Preferred'] / 100 if unit == "%" else row['Preferred']
+                                            max_val = row['Max'] / 100 if unit == "%" else row['Max']
+
+                                            # Store override
+                                            st.session_state.benchmark_overrides[selected_asset][selected_subclass][metric_name] = [
+                                                min_val, pref_val, max_val, row['Source']
+                                            ]
+
+                                    st.success(f"✅ Saved {len(edited_df)} benchmark overrides for {group_name}")
+                                    st.rerun()
+
+                        else:
+                            # VIEW MODE - Display formatted values
+                            group_data = []
+                            for metric in available_metrics:
+                                if metric in selected_benchmarks:
+                                    bench_data = selected_benchmarks[metric]
+                                    metric_info = get_metric_info(metric)
+                                    unit = metric_info.get("unit", "")
+
+                                    if unit == "%":
+                                        min_val = f"{bench_data[0]*100:.1f}%"
+                                        pref_val = f"{bench_data[1]*100:.1f}%"
+                                        max_val = f"{bench_data[2]*100:.1f}%"
+                                    elif unit == "x":
+                                        min_val = f"{bench_data[0]:.2f}x"
+                                        pref_val = f"{bench_data[1]:.2f}x"
+                                        max_val = f"{bench_data[2]:.2f}x"
+                                    elif unit == "years":
+                                        min_val = f"{bench_data[0]:.1f} yrs"
+                                        pref_val = f"{bench_data[1]:.1f} yrs"
+                                        max_val = f"{bench_data[2]:.1f} yrs"
+                                    elif unit in ["$/sf", "$/unit"]:
+                                        min_val = f"${bench_data[0]:,.0f}"
+                                        pref_val = f"${bench_data[1]:,.0f}"
+                                        max_val = f"${bench_data[2]:,.0f}"
+                                    else:
+                                        min_val = f"{bench_data[0]:,.1f}"
+                                        pref_val = f"{bench_data[1]:,.1f}"
+                                        max_val = f"{bench_data[2]:,.1f}"
+
+                                    group_data.append({
+                                        "Metric": metric.replace("_", " ").title(),
+                                        "Min": min_val,
+                                        "Preferred": pref_val,
+                                        "Max": max_val,
+                                        "Source": bench_data[3] if len(bench_data) > 3 else "Industry Standard"
+                                    })
+
+                            if group_data:
+                                df_group = pd.DataFrame(group_data)
+
+                                # Check if there are any overrides
+                                has_overrides = any(metric in overrides for metric in available_metrics)
+                                if has_overrides:
+                                    st.info("ℹ️ Using customized benchmark values")
+
+                                # Display with custom styling
+                                st.dataframe(
+                                    df_group,
+                                    use_container_width=True,
+                                    hide_index=True,
+                                    column_config={
+                                        "Metric": st.column_config.TextColumn(
+                                            "Metric",
+                                            help="Click metric names for detailed descriptions"
+                                        ),
+                                        "Preferred": st.column_config.TextColumn(
+                                            "Preferred",
+                                            help="Target range for institutional quality"
+                                        ),
+                                        "Source": st.column_config.TextColumn(
+                                            "Source",
+                                            help="Data source for benchmark"
+                                        )
+                                    }
+                                )
+
+                            # Add detailed metric descriptions
+                            with st.expander("📖 Metric Descriptions", expanded=False):
+                                for metric in available_metrics:
+                                    metric_info = get_metric_info(metric)
+                                    st.markdown(f"**{metric.replace('_', ' ').title()}**")
+                                    st.caption(f"*{metric_info.get('description', 'No description available')}*")
+                                    st.info(f"💡 **Why it matters:** {metric_info.get('why_it_matters', 'Metric importance not documented')}")
+                                    st.markdown("---")
+
+            # Add benchmark comparison tool
+            st.markdown("---")
+            st.subheader("🔍 Quick Benchmark Check")
+
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                check_metric = st.selectbox(
+                    "Select Metric",
+                    options=[m for m in selected_benchmarks.keys()],
+                    format_func=lambda x: x.replace("_", " ").title()
+                )
+
+            with col2:
+                if check_metric:
+                    metric_info = get_metric_info(check_metric)
+                    unit = metric_info.get("unit", "")
+
+                    if unit == "%":
+                        check_value = st.number_input(
+                            f"Your Value (%)",
+                            min_value=0.0,
+                            max_value=100.0,
+                            value=5.0,
+                            step=0.1
+                        ) / 100  # Convert to decimal
+                    else:
+                        check_value = st.number_input(
+                            f"Your Value ({unit})",
+                            min_value=0.0,
+                            value=1.0,
+                            step=0.1
+                        )
+
+            with col3:
+                if check_metric and check_value:
+                    bench_range = selected_benchmarks[check_metric]
+                    status = get_status(check_value, bench_range)
+
+                    if status == "OK":
+                        st.success(f"✅ {status}: Within preferred range")
+                    elif status == "Borderline":
+                        st.warning(f"⚠️ {status}: Acceptable but not ideal")
+                    else:
+                        st.error(f"❌ {status}: Outside acceptable range")
+
+                    st.caption(f"Target: {bench_range[0]:.2f} - {bench_range[2]:.2f}")
+                    st.caption(f"Source: {bench_range[3] if len(bench_range) > 3 else 'Industry'}")
+
+        else:
+            st.info("Select an asset class and property type to view relevant benchmarks")
 
     with tab3:
         st.header("📋 Due Diligence Checklist")
