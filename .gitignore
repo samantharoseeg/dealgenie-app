@@ -82,6 +82,7 @@ desktop.ini
 
 # Project specific
 data/
+!data/templates/.gitkeep
 output/
 *.csv
 *.xlsx

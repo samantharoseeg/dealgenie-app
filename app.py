@@ -16,6 +16,8 @@ import base64
 import io
 from PIL import Image
 import io
+import os
+from pathlib import Path
 from ocr_parser import ComprehensiveDataParser
 from llm_enhancement import render_api_settings, render_summary_with_llm_option, calculate_metrics_for_llm
 from cre_extraction_engine import CREExtractionEngine, ASSET_CLASSES
@@ -48,6 +50,112 @@ st.set_page_config(
         'About': "DealGenie Pro v1.0 - Institutional-Grade CRE Analysis"
     }
 )
+
+# ============================================================================
+# TEMPLATE MANAGEMENT SYSTEM
+# ============================================================================
+
+# Template directory path
+TEMPLATES_DIR = Path("data/templates")
+
+def ensure_templates_dir():
+    """Ensure templates directory exists"""
+    TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
+
+def list_templates() -> List[str]:
+    """Return list of available template names"""
+    ensure_templates_dir()
+    template_files = list(TEMPLATES_DIR.glob("*.json"))
+    return [f.stem for f in template_files]
+
+def save_template(template_name: str, settings_dict: Dict) -> bool:
+    """
+    Save template to JSON file
+
+    Args:
+        template_name: Name of the template
+        settings_dict: Dictionary containing benchmark_overrides and custom_dd_items
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        ensure_templates_dir()
+        template_path = TEMPLATES_DIR / f"{template_name}.json"
+
+        # Prepare data to save
+        template_data = {
+            "template_name": template_name,
+            "created_date": datetime.now().isoformat(),
+            "benchmark_overrides": settings_dict.get("benchmark_overrides", {}),
+            "custom_dd_items": settings_dict.get("custom_dd_items", {}),
+            "profile_name": settings_dict.get("profile_name", "")
+        }
+
+        # Write to file
+        with open(template_path, 'w') as f:
+            json.dump(template_data, f, indent=2)
+
+        return True
+    except Exception as e:
+        st.error(f"Error saving template: {str(e)}")
+        return False
+
+def load_template(template_name: str) -> bool:
+    """
+    Load template from JSON file and update session state
+
+    Args:
+        template_name: Name of the template to load
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        template_path = TEMPLATES_DIR / f"{template_name}.json"
+
+        if not template_path.exists():
+            st.error(f"Template '{template_name}' not found")
+            return False
+
+        # Read template file
+        with open(template_path, 'r') as f:
+            template_data = json.load(f)
+
+        # Update session state
+        if "benchmark_overrides" in template_data:
+            st.session_state.benchmark_overrides = template_data["benchmark_overrides"]
+
+        if "custom_dd_items" in template_data:
+            st.session_state.custom_dd_items = template_data["custom_dd_items"]
+
+        if "profile_name" in template_data:
+            st.session_state.profile_name = template_data["profile_name"]
+
+        return True
+    except Exception as e:
+        st.error(f"Error loading template: {str(e)}")
+        return False
+
+def delete_template(template_name: str) -> bool:
+    """
+    Delete a template file
+
+    Args:
+        template_name: Name of the template to delete
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        template_path = TEMPLATES_DIR / f"{template_name}.json"
+        if template_path.exists():
+            template_path.unlink()
+            return True
+        return False
+    except Exception as e:
+        st.error(f"Error deleting template: {str(e)}")
+        return False
 
 # ============================================================================
 # CUSTOM STYLING
@@ -2905,10 +3013,131 @@ def render_analysis(data: Dict):
 
         st.plotly_chart(fig, use_container_width=True)
 
+def render_profile_and_templates():
+    """Render user profile and template management in sidebar"""
+    with st.sidebar:
+        st.markdown("### 👤 User Profile")
+
+        # Profile Name
+        if 'profile_name' not in st.session_state:
+            st.session_state.profile_name = ""
+
+        profile_name = st.text_input(
+            "Profile Name",
+            value=st.session_state.profile_name,
+            placeholder="Enter your name or company",
+            key="profile_name_input"
+        )
+        st.session_state.profile_name = profile_name
+
+        st.markdown("---")
+        st.markdown("### 📋 Template Management")
+
+        # Get available templates
+        available_templates = list_templates()
+        template_options = ["Default"] + available_templates + ["New Template"]
+
+        # Template selector
+        if 'selected_template' not in st.session_state:
+            st.session_state.selected_template = "Default"
+
+        selected_template = st.selectbox(
+            "Template",
+            options=template_options,
+            index=template_options.index(st.session_state.selected_template) if st.session_state.selected_template in template_options else 0,
+            key="template_selector"
+        )
+
+        # If "New Template" is selected, show input for new template name
+        new_template_name = None
+        if selected_template == "New Template":
+            new_template_name = st.text_input(
+                "New Template Name",
+                placeholder="Enter template name",
+                key="new_template_name_input"
+            )
+
+        st.markdown("---")
+
+        # Template action buttons
+        col1, col2 = st.columns(2)
+
+        with col1:
+            if st.button("💾 Save", use_container_width=True, help="Save current settings as template"):
+                # Determine template name
+                if selected_template == "New Template":
+                    template_to_save = new_template_name
+                elif selected_template == "Default":
+                    st.warning("Cannot overwrite Default template. Please select 'New Template'.")
+                    template_to_save = None
+                else:
+                    template_to_save = selected_template
+
+                if template_to_save and template_to_save.strip():
+                    # Gather settings from session state
+                    settings_dict = {
+                        "benchmark_overrides": st.session_state.get("benchmark_overrides", {}),
+                        "custom_dd_items": st.session_state.get("custom_dd_items", {}),
+                        "profile_name": st.session_state.get("profile_name", "")
+                    }
+
+                    if save_template(template_to_save, settings_dict):
+                        st.success(f"✅ Template '{template_to_save}' saved!")
+                        st.session_state.selected_template = template_to_save
+                        st.rerun()
+                elif selected_template == "New Template":
+                    st.warning("Please enter a template name")
+
+        with col2:
+            if st.button("📂 Load", use_container_width=True, help="Load template settings"):
+                if selected_template == "Default":
+                    # Reset to defaults
+                    if 'benchmark_overrides' in st.session_state:
+                        st.session_state.benchmark_overrides = {}
+                    if 'custom_dd_items' in st.session_state:
+                        st.session_state.custom_dd_items = {}
+                    st.success("✅ Reset to default settings")
+                    st.rerun()
+                elif selected_template == "New Template":
+                    st.warning("Please select an existing template to load")
+                else:
+                    if load_template(selected_template):
+                        st.success(f"✅ Template '{selected_template}' loaded!")
+                        st.session_state.selected_template = selected_template
+                        st.rerun()
+
+        # Delete template option (only for custom templates)
+        if selected_template not in ["Default", "New Template"] and available_templates:
+            st.markdown("---")
+            if st.button("🗑️ Delete Template", use_container_width=True, type="secondary"):
+                if delete_template(selected_template):
+                    st.success(f"✅ Template '{selected_template}' deleted")
+                    st.session_state.selected_template = "Default"
+                    st.rerun()
+
+        # Show template info
+        if selected_template not in ["Default", "New Template"]:
+            try:
+                template_path = TEMPLATES_DIR / f"{selected_template}.json"
+                if template_path.exists():
+                    with open(template_path, 'r') as f:
+                        template_data = json.load(f)
+                    created_date = template_data.get("created_date", "Unknown")
+                    if created_date != "Unknown":
+                        created_date = datetime.fromisoformat(created_date).strftime("%Y-%m-%d %H:%M")
+                    st.caption(f"Created: {created_date}")
+            except:
+                pass
+
+        st.markdown("---")
+
 def main():
     """Main application entry point"""
     inject_custom_css()
     render_header()
+
+    # Render profile and template management in sidebar
+    render_profile_and_templates()
 
     # Render API settings in sidebar
     render_api_settings()
@@ -3250,8 +3479,8 @@ def main():
     with tab3:
         st.header("📋 Due Diligence Checklist")
 
-        # Comprehensive DD Checklist organized by category
-        dd_categories = {
+        # Default DD Checklist organized by category
+        default_dd_categories = {
             "📊 Financial Due Diligence": [
                 "T-12 and T-3 operating statements with GL tie-out",
                 "Current rent roll with lease abstracts",
@@ -3310,6 +3539,23 @@ def main():
             ]
         }
 
+        # Initialize custom DD items in session state
+        if 'custom_dd_items' not in st.session_state:
+            st.session_state.custom_dd_items = {}
+
+        if 'items_to_delete' not in st.session_state:
+            st.session_state.items_to_delete = set()
+
+        # Merge default and custom DD items
+        dd_categories = {}
+        for category, items in default_dd_categories.items():
+            # Start with default items
+            merged_items = list(items)
+            # Add custom items for this category
+            if category in st.session_state.custom_dd_items:
+                merged_items.extend(st.session_state.custom_dd_items[category])
+            dd_categories[category] = merged_items
+
         # Display DD checklist with expanders
         for category, items in dd_categories.items():
             with st.expander(category, expanded=False):
@@ -3324,7 +3570,83 @@ def main():
         # Progress tracker
         st.markdown("---")
         total_items = sum(len(items) for items in dd_categories.values())
-        st.info(f"Total DD Items: {total_items}")
+        custom_count = sum(len(items) for items in st.session_state.custom_dd_items.values())
+        if custom_count > 0:
+            st.info(f"Total DD Items: {total_items} ({custom_count} custom)")
+        else:
+            st.info(f"Total DD Items: {total_items}")
+
+        # Edit Due Diligence Items Section
+        st.markdown("---")
+        with st.expander("✏️ Edit Due Diligence Items", expanded=False):
+            st.markdown("**Add or remove custom due diligence items for each category**")
+
+            # Reset to Defaults button at top
+            col1, col2 = st.columns([3, 1])
+            with col2:
+                if st.button("🔄 Reset to Defaults", use_container_width=True, type="secondary"):
+                    st.session_state.custom_dd_items = {}
+                    st.session_state.items_to_delete = set()
+                    st.success("✅ Reset to default DD items")
+                    st.rerun()
+
+            st.markdown("---")
+
+            # Iterate through each category
+            for category in default_dd_categories.keys():
+                st.markdown(f"### {category}")
+
+                # Show existing items with delete option
+                current_items = dd_categories.get(category, [])
+                default_items = default_dd_categories.get(category, [])
+                custom_items = st.session_state.custom_dd_items.get(category, [])
+
+                if custom_items:
+                    st.markdown("**Custom Items (check to delete):**")
+                    items_to_remove = []
+                    for custom_item in custom_items:
+                        if st.checkbox(f"🗑️ {custom_item}", key=f"delete_{category}_{custom_item}"):
+                            items_to_remove.append(custom_item)
+
+                    if items_to_remove and st.button(f"Delete Selected Items", key=f"delete_btn_{category}"):
+                        # Remove selected items
+                        for item in items_to_remove:
+                            if category in st.session_state.custom_dd_items:
+                                if item in st.session_state.custom_dd_items[category]:
+                                    st.session_state.custom_dd_items[category].remove(item)
+                                # Clean up empty categories
+                                if not st.session_state.custom_dd_items[category]:
+                                    del st.session_state.custom_dd_items[category]
+                        st.success(f"✅ Deleted {len(items_to_remove)} item(s)")
+                        st.rerun()
+
+                # Add new item
+                st.markdown("**Add New Item:**")
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    new_item = st.text_input(
+                        "New Item",
+                        key=f"new_item_{category}",
+                        placeholder="Enter new due diligence item",
+                        label_visibility="collapsed"
+                    )
+                with col2:
+                    if st.button("➕ Add", key=f"add_btn_{category}", use_container_width=True):
+                        if new_item and new_item.strip():
+                            # Initialize category if not exists
+                            if category not in st.session_state.custom_dd_items:
+                                st.session_state.custom_dd_items[category] = []
+                            # Add item if not duplicate
+                            if new_item not in current_items:
+                                st.session_state.custom_dd_items[category].append(new_item)
+                                st.success(f"✅ Added: {new_item}")
+                                st.rerun()
+                            else:
+                                st.warning("⚠️ Item already exists")
+                        else:
+                            st.warning("⚠️ Please enter an item")
+
+                st.markdown("---")
 
     with tab4:
         st.header("📄 Report Generation")
