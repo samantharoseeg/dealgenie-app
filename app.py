@@ -132,6 +132,11 @@ def load_template(template_name: str) -> bool:
         if "profile_name" in template_data:
             st.session_state.profile_name = template_data["profile_name"]
 
+        # Update template tracking flags
+        st.session_state.template_loaded = True
+        st.session_state.active_template_name = template_name
+        st.session_state.active_template_date = template_data.get("created_date", "Unknown")
+
         return True
     except Exception as e:
         st.error(f"Error loading template: {str(e)}")
@@ -3327,6 +3332,31 @@ def render_analysis(data: Dict):
 def render_profile_and_templates():
     """Render user profile and template management in sidebar"""
     with st.sidebar:
+        # Active Template Indicator (at the top)
+        st.markdown("### 📌 Active Template")
+
+        if st.session_state.get('template_loaded', False):
+            # Custom template is loaded
+            template_name = st.session_state.get('active_template_name', 'Unknown')
+            template_date = st.session_state.get('active_template_date', 'Unknown')
+
+            # Format date if available
+            if template_date != "Unknown":
+                try:
+                    formatted_date = datetime.fromisoformat(template_date).strftime("%Y-%m-%d %H:%M")
+                except:
+                    formatted_date = template_date
+            else:
+                formatted_date = "Unknown"
+
+            st.success(f"**{template_name}**")
+            st.caption(f"📅 Created: {formatted_date}")
+        else:
+            # Using built-in benchmarks
+            st.info("**Built-in Benchmarks**")
+            st.caption("Using default DealGenie benchmark library")
+
+        st.markdown("---")
         st.markdown("### 👤 User Profile")
 
         # Profile Name
@@ -3545,13 +3575,52 @@ def main():
     inject_custom_css()
     render_header()
 
-    # Load default template on first run
+    # ============================================================================
+    # TEMPLATE PERSISTENCE & INITIALIZATION
+    # ============================================================================
+
+    # Ensure templates directory exists
+    os.makedirs('data/templates', exist_ok=True)
+
+    # Initialize template tracking flags
+    if 'template_loaded' not in st.session_state:
+        st.session_state.template_loaded = False
+        st.session_state.active_template_name = None
+        st.session_state.active_template_date = None
+
+    # Load default template on first run (persists across sessions)
     if 'default_template_loaded' not in st.session_state:
+        # Check if default template file exists
         default_template = get_default_template()
+
         if default_template:
-            # Try to load the default template
-            if load_template(default_template):
-                st.session_state.selected_template = default_template
+            # Attempt to load the default template
+            try:
+                if load_template(default_template):
+                    st.session_state.selected_template = default_template
+                    st.session_state.template_loaded = True
+                    st.session_state.active_template_name = default_template
+
+                    # Get template metadata for last modified date
+                    metadata = get_template_metadata(default_template)
+                    if metadata:
+                        st.session_state.active_template_date = metadata.get("created_date", "Unknown")
+                else:
+                    # Default template failed to load, use built-in benchmarks
+                    st.session_state.template_loaded = False
+                    st.session_state.active_template_name = "Built-in Benchmarks"
+                    st.session_state.active_template_date = None
+            except Exception as e:
+                # Error loading default template, fall back to built-in
+                st.session_state.template_loaded = False
+                st.session_state.active_template_name = "Built-in Benchmarks"
+                st.session_state.active_template_date = None
+        else:
+            # No default template set, use built-in benchmark library
+            st.session_state.template_loaded = False
+            st.session_state.active_template_name = "Built-in Benchmarks"
+            st.session_state.active_template_date = None
+
         st.session_state.default_template_loaded = True
 
     # Render profile and template management in sidebar
