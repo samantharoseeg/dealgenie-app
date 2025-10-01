@@ -3896,22 +3896,68 @@ def main():
                                     }
                                 )
 
-            # Add detailed metric descriptions section (separate from groups to avoid nesting)
+            # Add comprehensive metric glossary (all 25+ metrics from catalog)
             st.markdown("---")
-            with st.expander("📖 Metric Descriptions", expanded=False):
-                st.caption("Detailed explanations for all metrics in the selected property type")
-                # Get all metrics from all groups
-                all_metrics = []
-                for group_name, metric_list in metric_groups.items():
-                    all_metrics.extend([m for m in metric_list if m in selected_benchmarks])
+            with st.expander("📖 CRE Metrics Glossary", expanded=False):
+                st.caption("Complete reference guide for all commercial real estate metrics")
 
-                # Display descriptions
-                for metric in all_metrics:
-                    metric_info = get_metric_info(metric)
-                    st.markdown(f"**{metric.replace('_', ' ').title()}**")
-                    st.caption(f"*{metric_info.get('description', 'No description available')}*")
-                    st.info(f"💡 **Why it matters:** {metric_info.get('why_it_matters', 'Metric importance not documented')}")
+                # Search box to filter metrics
+                search_term = st.text_input(
+                    "🔍 Search metrics",
+                    placeholder="Type to filter by name, description, or formula...",
+                    key="metric_search"
+                )
+
+                # Get all metrics from METRICS_CATALOG (complete glossary)
+                all_catalog_metrics = list(METRICS_CATALOG.keys())
+
+                # Filter metrics based on search term
+                if search_term:
+                    search_lower = search_term.lower()
+                    filtered_metrics = [
+                        metric for metric in all_catalog_metrics
+                        if (search_lower in metric.lower() or
+                            search_lower in METRICS_CATALOG[metric].get('description', '').lower() or
+                            search_lower in METRICS_CATALOG[metric].get('why_it_matters', '').lower())
+                    ]
+                else:
+                    filtered_metrics = all_catalog_metrics
+
+                # Display count
+                if search_term:
+                    st.info(f"📊 Showing {len(filtered_metrics)} of {len(all_catalog_metrics)} metrics")
+                else:
+                    st.info(f"📊 Showing all {len(all_catalog_metrics)} metrics")
+
+                st.markdown("---")
+
+                # Display all filtered metrics with complete information
+                for metric in filtered_metrics:
+                    metric_info = METRICS_CATALOG[metric]
+
+                    # Metric name as header
+                    metric_display_name = metric.replace('_', ' ').title()
+                    st.markdown(f"### {metric_display_name}")
+
+                    # Unit
+                    unit = metric_info.get('unit', 'N/A')
+                    st.caption(f"**Unit:** {unit}")
+
+                    # Description (formula/definition)
+                    description = metric_info.get('description', 'No description available')
+                    st.markdown(f"**📐 Formula/Definition:**")
+                    st.markdown(f"*{description}*")
+
+                    # Why it matters
+                    why_it_matters = metric_info.get('why_it_matters', 'Metric importance not documented')
+                    st.info(f"💡 **Why it matters:** {why_it_matters}")
+
                     st.markdown("---")
+
+                # No results message
+                if not filtered_metrics:
+                    st.warning(f"No metrics found matching '{search_term}'")
+                    st.caption("Try searching for terms like: cap rate, occupancy, dscr, noi, lease, return")
 
             # Add benchmark comparison tool
             st.markdown("---")
