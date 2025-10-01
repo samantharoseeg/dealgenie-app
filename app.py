@@ -857,6 +857,15 @@ def render_input_section():
     parsed_data = {}
 
     if input_method == "📝 Manual Entry":
+        # Define asset class to subclass mapping
+        ASSET_CLASSES = {
+            "Multifamily": ["garden_lowrise", "midrise", "highrise", "student_housing", "senior_IL", "senior_AL", "senior_MemoryCare"],
+            "Office": ["cbd_A_trophy", "cbd_BC", "suburban", "medical_office", "flex_creative"],
+            "Industrial": ["bulk_distribution", "manufacturing", "cold_storage", "last_mile"],
+            "Retail": ["neighborhood_center", "community_center", "power_center", "lifestyle_center", "outlet_center"],
+            "Hotel": ["full_service_upscale", "select_service", "extended_stay", "resort", "limited_service"]
+        }
+
         col1, col2, col3 = st.columns(3)
 
         with col1:
@@ -864,6 +873,17 @@ def render_input_section():
                 "Asset Class",
                 ["Office", "Multifamily", "Industrial", "Retail", "Hotel"]
             )
+
+            # Add subclass dropdown
+            subclass_options = ASSET_CLASSES.get(asset_class, [])
+            if subclass_options:
+                subclass = st.selectbox(
+                    "Property Type",
+                    subclass_options,
+                    format_func=lambda x: x.replace("_", " ").title()
+                )
+                st.session_state['subclass'] = subclass
+
             purchase_price = st.number_input(
                 "Purchase Price ($)",
                 min_value=0,
@@ -3159,14 +3179,22 @@ def main():
                                     }
                                 )
 
-                            # Add detailed metric descriptions
-                            with st.expander("📖 Metric Descriptions", expanded=False):
-                                for metric in available_metrics:
-                                    metric_info = get_metric_info(metric)
-                                    st.markdown(f"**{metric.replace('_', ' ').title()}**")
-                                    st.caption(f"*{metric_info.get('description', 'No description available')}*")
-                                    st.info(f"💡 **Why it matters:** {metric_info.get('why_it_matters', 'Metric importance not documented')}")
-                                    st.markdown("---")
+            # Add detailed metric descriptions section (separate from groups to avoid nesting)
+            st.markdown("---")
+            with st.expander("📖 Metric Descriptions", expanded=False):
+                st.caption("Detailed explanations for all metrics in the selected property type")
+                # Get all metrics from all groups
+                all_metrics = []
+                for group_name, metric_list in metric_groups.items():
+                    all_metrics.extend([m for m in metric_list if m in selected_benchmarks])
+
+                # Display descriptions
+                for metric in all_metrics:
+                    metric_info = get_metric_info(metric)
+                    st.markdown(f"**{metric.replace('_', ' ').title()}**")
+                    st.caption(f"*{metric_info.get('description', 'No description available')}*")
+                    st.info(f"💡 **Why it matters:** {metric_info.get('why_it_matters', 'Metric importance not documented')}")
+                    st.markdown("---")
 
             # Add benchmark comparison tool
             st.markdown("---")
