@@ -277,6 +277,197 @@ def export_template_to_json() -> Dict:
 
     return template_data
 
+def get_default_template() -> Optional[str]:
+    """
+    Get the name of the default template
+
+    Returns:
+        Template name or None if no default set
+    """
+    try:
+        default_file = Path("data/default_template.txt")
+        if default_file.exists():
+            return default_file.read_text().strip()
+        return None
+    except Exception as e:
+        return None
+
+def set_default_template(template_name: str) -> bool:
+    """
+    Set a template as the default
+
+    Args:
+        template_name: Name of template to set as default
+
+    Returns:
+        True if successful
+    """
+    try:
+        default_file = Path("data/default_template.txt")
+        default_file.parent.mkdir(parents=True, exist_ok=True)
+        default_file.write_text(template_name)
+        return True
+    except Exception as e:
+        st.error(f"Error setting default template: {str(e)}")
+        return False
+
+def clear_default_template() -> bool:
+    """
+    Clear the default template setting
+
+    Returns:
+        True if successful
+    """
+    try:
+        default_file = Path("data/default_template.txt")
+        if default_file.exists():
+            default_file.unlink()
+        return True
+    except Exception as e:
+        st.error(f"Error clearing default template: {str(e)}")
+        return False
+
+def duplicate_template(template_name: str, new_name: str) -> bool:
+    """
+    Duplicate an existing template
+
+    Args:
+        template_name: Name of template to duplicate
+        new_name: Name for the new copy
+
+    Returns:
+        True if successful
+    """
+    try:
+        source_path = TEMPLATES_DIR / f"{template_name}.json"
+        if not source_path.exists():
+            st.error(f"Template '{template_name}' not found")
+            return False
+
+        # Read source template
+        with open(source_path, 'r') as f:
+            template_data = json.load(f)
+
+        # Update name and date
+        template_data["template_name"] = new_name
+        template_data["created_date"] = datetime.now().isoformat()
+        if "original_template" not in template_data:
+            template_data["original_template"] = template_name
+
+        # Save as new template
+        return save_template(new_name, template_data)
+
+    except Exception as e:
+        st.error(f"Error duplicating template: {str(e)}")
+        return False
+
+def get_template_metadata(template_name: str) -> Optional[Dict]:
+    """
+    Get metadata for a template
+
+    Args:
+        template_name: Name of template
+
+    Returns:
+        Dictionary with metadata or None
+    """
+    try:
+        template_path = TEMPLATES_DIR / f"{template_name}.json"
+        if not template_path.exists():
+            return None
+
+        with open(template_path, 'r') as f:
+            template_data = json.load(f)
+
+        # Count customizations
+        num_benchmarks = 0
+        if "benchmark_overrides" in template_data:
+            for asset_class, subclasses in template_data["benchmark_overrides"].items():
+                for subclass, metrics in subclasses.items():
+                    num_benchmarks += len(metrics)
+
+        num_dd_items = sum(len(items) for items in template_data.get("custom_dd_items", {}).values())
+
+        return {
+            "name": template_name,
+            "created_date": template_data.get("created_date", "Unknown"),
+            "num_benchmarks": num_benchmarks,
+            "num_dd_items": num_dd_items,
+            "profile_name": template_data.get("profile_name", ""),
+            "description": template_data.get("description", ""),
+            "base_asset_class": template_data.get("asset_class_defaults", {}).get("asset_class", "")
+        }
+
+    except Exception as e:
+        return None
+
+def compare_templates(template1_name: str, template2_name: str) -> Dict:
+    """
+    Compare two templates and show differences
+
+    Args:
+        template1_name: Name of first template
+        template2_name: Name of second template
+
+    Returns:
+        Dictionary with comparison data
+    """
+    try:
+        # Load both templates
+        path1 = TEMPLATES_DIR / f"{template1_name}.json"
+        path2 = TEMPLATES_DIR / f"{template2_name}.json"
+
+        if not path1.exists() or not path2.exists():
+            return {"error": "One or both templates not found"}
+
+        with open(path1, 'r') as f:
+            data1 = json.load(f)
+        with open(path2, 'r') as f:
+            data2 = json.load(f)
+
+        # Compare benchmark overrides
+        benchmarks1 = data1.get("benchmark_overrides", {})
+        benchmarks2 = data2.get("benchmark_overrides", {})
+
+        # Count differences
+        all_asset_classes = set(benchmarks1.keys()) | set(benchmarks2.keys())
+        benchmark_diffs = []
+
+        for asset_class in all_asset_classes:
+            if asset_class not in benchmarks1:
+                benchmark_diffs.append(f"➕ {asset_class} (only in {template2_name})")
+            elif asset_class not in benchmarks2:
+                benchmark_diffs.append(f"➖ {asset_class} (only in {template1_name})")
+
+        # Compare DD items
+        dd1 = data1.get("custom_dd_items", {})
+        dd2 = data2.get("custom_dd_items", {})
+
+        all_categories = set(dd1.keys()) | set(dd2.keys())
+        dd_diffs = []
+
+        for category in all_categories:
+            items1 = set(dd1.get(category, []))
+            items2 = set(dd2.get(category, []))
+
+            only_in_1 = items1 - items2
+            only_in_2 = items2 - items1
+
+            if only_in_1:
+                dd_diffs.append(f"➖ {category}: {len(only_in_1)} items only in {template1_name}")
+            if only_in_2:
+                dd_diffs.append(f"➕ {category}: {len(only_in_2)} items only in {template2_name}")
+
+        return {
+            "template1": template1_name,
+            "template2": template2_name,
+            "benchmark_diffs": benchmark_diffs if benchmark_diffs else ["No differences"],
+            "dd_diffs": dd_diffs if dd_diffs else ["No differences"]
+        }
+
+    except Exception as e:
+        return {"error": f"Comparison error: {str(e)}"}
+
 # ============================================================================
 # CUSTOM STYLING
 # ============================================================================
@@ -3354,6 +3545,15 @@ def main():
     inject_custom_css()
     render_header()
 
+    # Load default template on first run
+    if 'default_template_loaded' not in st.session_state:
+        default_template = get_default_template()
+        if default_template:
+            # Try to load the default template
+            if load_template(default_template):
+                st.session_state.selected_template = default_template
+        st.session_state.default_template_loaded = True
+
     # Render profile and template management in sidebar
     render_profile_and_templates()
 
@@ -3361,11 +3561,12 @@ def main():
     render_api_settings()
 
     # Create tabs
-    tab1, tab2, tab3, tab4 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "📊 Analysis",
         "📚 Benchmarks",
         "📋 Due Diligence",
-        "📄 Reports"
+        "📄 Reports",
+        "⚙️ Settings"
     ])
 
     with tab1:
@@ -3903,6 +4104,231 @@ def main():
                         file_name=f"DealGenie_Charts_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
                         mime="image/png"
                     )
+
+    with tab5:
+        st.header("⚙️ Template Settings & Management")
+
+        # Get list of templates
+        available_templates = list_templates()
+        default_template = get_default_template()
+
+        # Section 1: Template List
+        st.markdown("### 📋 Saved Templates")
+
+        if available_templates:
+            # Build dataframe with template info
+            template_rows = []
+            for template_name in available_templates:
+                metadata = get_template_metadata(template_name)
+                if metadata:
+                    created = metadata.get("created_date", "Unknown")
+                    if created != "Unknown":
+                        try:
+                            created = datetime.fromisoformat(created).strftime("%Y-%m-%d %H:%M")
+                        except:
+                            pass
+
+                    is_default = "⭐ Yes" if template_name == default_template else "No"
+
+                    template_rows.append({
+                        "Template Name": template_name,
+                        "Created": created,
+                        "Benchmarks": metadata.get("num_benchmarks", 0),
+                        "DD Items": metadata.get("num_dd_items", 0),
+                        "Default": is_default
+                    })
+
+            # Display as dataframe
+            df_templates = pd.DataFrame(template_rows)
+            st.dataframe(df_templates, use_container_width=True, hide_index=True)
+
+            st.markdown("---")
+
+            # Section 2: Template Actions
+            st.markdown("### 🔧 Template Actions")
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                selected_for_action = st.selectbox(
+                    "Select Template",
+                    options=available_templates,
+                    key="template_action_selector"
+                )
+
+            with col2:
+                st.markdown("**Quick Actions:**")
+
+            # Action buttons
+            col1, col2, col3, col4 = st.columns(4)
+
+            with col1:
+                if st.button("📂 Load", use_container_width=True, key="settings_load"):
+                    if load_template(selected_for_action):
+                        st.success(f"✅ Loaded '{selected_for_action}'")
+                        st.rerun()
+
+            with col2:
+                if st.button("🗑️ Delete", use_container_width=True, key="settings_delete", type="secondary"):
+                    if delete_template(selected_for_action):
+                        st.success(f"✅ Deleted '{selected_for_action}'")
+                        # Clear default if it was the default template
+                        if selected_for_action == default_template:
+                            clear_default_template()
+                        st.rerun()
+
+            with col3:
+                # Duplicate button with input
+                if st.button("📋 Duplicate", use_container_width=True, key="settings_duplicate"):
+                    st.session_state.show_duplicate_input = True
+
+            with col4:
+                # Set as default button
+                if selected_for_action == default_template:
+                    if st.button("⭐ Clear Default", use_container_width=True, key="settings_clear_default"):
+                        if clear_default_template():
+                            st.success("✅ Cleared default template")
+                            st.rerun()
+                else:
+                    if st.button("⭐ Set as Default", use_container_width=True, key="settings_set_default"):
+                        if set_default_template(selected_for_action):
+                            st.success(f"✅ Set '{selected_for_action}' as default")
+                            st.rerun()
+
+            # Duplicate input (shown when duplicate button clicked)
+            if st.session_state.get('show_duplicate_input', False):
+                st.markdown("---")
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    duplicate_name = st.text_input(
+                        "New Template Name",
+                        placeholder=f"{selected_for_action}_copy",
+                        key="duplicate_name_input"
+                    )
+                with col2:
+                    st.markdown("")
+                    st.markdown("")
+                    if st.button("✅ Create Duplicate", use_container_width=True):
+                        if duplicate_name and duplicate_name.strip():
+                            if duplicate_template(selected_for_action, duplicate_name):
+                                st.success(f"✅ Created '{duplicate_name}'")
+                                st.session_state.show_duplicate_input = False
+                                st.rerun()
+                        else:
+                            st.warning("Please enter a name")
+
+        else:
+            st.info("No templates saved yet. Create templates using the sidebar or by saving your current settings.")
+
+        # Section 3: Create New Template
+        st.markdown("---")
+        st.markdown("### ➕ Create New Template")
+
+        with st.expander("Create Template from Scratch", expanded=False):
+            col1, col2 = st.columns(2)
+
+            with col1:
+                new_template_name = st.text_input(
+                    "Template Name",
+                    placeholder="e.g., Office Class A CBD",
+                    key="new_template_name"
+                )
+
+                new_template_description = st.text_area(
+                    "Description (optional)",
+                    placeholder="Describe the purpose of this template",
+                    key="new_template_desc"
+                )
+
+            with col2:
+                new_template_asset_class = st.selectbox(
+                    "Base Asset Class",
+                    options=["", "Multifamily", "Office", "Industrial", "Retail", "Hotel"],
+                    key="new_template_asset"
+                )
+
+                new_template_subclass = st.selectbox(
+                    "Property Type",
+                    options=[""] + (list(BENCHMARK_DATA.get(new_template_asset_class.lower(), {}).keys()) if new_template_asset_class else []),
+                    format_func=lambda x: x.replace("_", " ").title() if x else "Select asset class first",
+                    key="new_template_subclass"
+                )
+
+            if st.button("➕ Create Template", use_container_width=True, key="create_new_template"):
+                if new_template_name and new_template_name.strip():
+                    # Create template with specified metadata
+                    template_data = {
+                        "template_name": new_template_name,
+                        "created_date": datetime.now().isoformat(),
+                        "description": new_template_description,
+                        "benchmark_overrides": {},
+                        "custom_dd_items": {},
+                        "profile_name": st.session_state.get("profile_name", ""),
+                        "asset_class_defaults": {
+                            "asset_class": new_template_asset_class,
+                            "subclass": new_template_subclass
+                        }
+                    }
+
+                    if save_template(new_template_name, template_data):
+                        st.success(f"✅ Created template '{new_template_name}'")
+                        st.rerun()
+                else:
+                    st.warning("Please enter a template name")
+
+        # Section 4: Template Comparison Tool
+        st.markdown("---")
+        st.markdown("### 🔍 Template Comparison")
+
+        if len(available_templates) >= 2:
+            with st.expander("Compare Two Templates", expanded=False):
+                col1, col2 = st.columns(2)
+
+                with col1:
+                    compare_template1 = st.selectbox(
+                        "First Template",
+                        options=available_templates,
+                        key="compare_template1"
+                    )
+
+                with col2:
+                    compare_template2 = st.selectbox(
+                        "Second Template",
+                        options=[t for t in available_templates if t != compare_template1],
+                        key="compare_template2"
+                    )
+
+                if st.button("🔍 Compare Templates", use_container_width=True):
+                    comparison = compare_templates(compare_template1, compare_template2)
+
+                    if "error" in comparison:
+                        st.error(comparison["error"])
+                    else:
+                        st.markdown(f"**Comparing:** `{comparison['template1']}` vs `{comparison['template2']}`")
+
+                        col1, col2 = st.columns(2)
+
+                        with col1:
+                            st.markdown("**📊 Benchmark Differences:**")
+                            for diff in comparison['benchmark_diffs']:
+                                st.caption(diff)
+
+                        with col2:
+                            st.markdown("**📋 DD Item Differences:**")
+                            for diff in comparison['dd_diffs']:
+                                st.caption(diff)
+        else:
+            st.info("Create at least 2 templates to use the comparison tool")
+
+        # Section 5: Default Template Info
+        st.markdown("---")
+        st.markdown("### ⭐ Default Template")
+
+        if default_template:
+            st.info(f"**Current Default:** {default_template}")
+            st.caption("This template will automatically load when the app starts")
+        else:
+            st.info("No default template set. You can set one by selecting a template above and clicking 'Set as Default'")
 
 if __name__ == "__main__":
     main()
