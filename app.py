@@ -4145,34 +4145,97 @@ def main():
         else:
             analysis_data = st.session_state.analysis_data
 
-            col1, col2, col3 = st.columns(3)
+            # ============================================================================
+            # PDF REPORT WITH PERSISTENCE
+            # ============================================================================
+            st.markdown("### 📑 PDF Report")
+
+            col1, col2 = st.columns([1, 1])
+
             with col1:
-                if st.button("📑 Generate PDF Report", use_container_width=True):
-                    pdf_bytes = generate_pdf_report(analysis_data)
+                # Generate or Regenerate button
+                if 'last_generated_pdf' in st.session_state and st.session_state.last_generated_pdf:
+                    button_label = "🔄 Regenerate PDF Report"
+                    button_help = "Generate a new PDF with latest data"
+                else:
+                    button_label = "📑 Generate PDF Report"
+                    button_help = "Create PDF report with current analysis"
+
+                if st.button(button_label, use_container_width=True, help=button_help, key="generate_pdf"):
+                    with st.spinner("Generating PDF report..."):
+                        pdf_bytes = generate_pdf_report(analysis_data)
+                        # Store in session state for persistence
+                        st.session_state.last_generated_pdf = pdf_bytes
+                        st.session_state.pdf_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                        st.success("✅ PDF generated successfully!")
+                        st.rerun()
+
+            with col2:
+                # Show download button if PDF exists in session state
+                if 'last_generated_pdf' in st.session_state and st.session_state.last_generated_pdf:
+                    timestamp = st.session_state.get('pdf_timestamp', datetime.now().strftime('%Y%m%d_%H%M%S'))
                     st.download_button(
                         label="📥 Download PDF",
-                        data=pdf_bytes,
-                        file_name=f"DealGenie_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
-                        mime="application/pdf"
+                        data=st.session_state.last_generated_pdf,
+                        file_name=f"DealGenie_Report_{timestamp}.pdf",
+                        mime="application/pdf",
+                        use_container_width=True,
+                        key="download_pdf"
                     )
-            with col2:
-                if st.button("📊 Export to Excel", use_container_width=True):
-                    excel_bytes = generate_excel_export(analysis_data)
+                    st.caption(f"📅 Generated: {timestamp}")
+                else:
+                    st.info("Click 'Generate PDF Report' to create report")
+
+            st.markdown("---")
+
+            # ============================================================================
+            # EXCEL AND CHART EXPORTS (with similar persistence)
+            # ============================================================================
+            col1, col2 = st.columns(2)
+
+            with col1:
+                st.markdown("### 📊 Excel Export")
+                if st.button("📊 Generate Excel", use_container_width=True, key="generate_excel"):
+                    with st.spinner("Generating Excel..."):
+                        excel_bytes = generate_excel_export(analysis_data)
+                        st.session_state.last_generated_excel = excel_bytes
+                        st.session_state.excel_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                        st.success("✅ Excel generated!")
+                        st.rerun()
+
+                if 'last_generated_excel' in st.session_state and st.session_state.last_generated_excel:
+                    timestamp = st.session_state.get('excel_timestamp', datetime.now().strftime('%Y%m%d_%H%M%S'))
                     st.download_button(
                         label="📥 Download Excel",
-                        data=excel_bytes,
-                        file_name=f"DealGenie_Analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        data=st.session_state.last_generated_excel,
+                        file_name=f"DealGenie_Analysis_{timestamp}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True,
+                        key="download_excel"
                     )
-            with col3:
-                if st.button("📈 Export Charts", use_container_width=True):
-                    chart_bytes = generate_chart_export(analysis_data)
+                    st.caption(f"📅 Generated: {timestamp}")
+
+            with col2:
+                st.markdown("### 📈 Chart Export")
+                if st.button("📈 Generate Charts", use_container_width=True, key="generate_charts"):
+                    with st.spinner("Generating charts..."):
+                        chart_bytes = generate_chart_export(analysis_data)
+                        st.session_state.last_generated_charts = chart_bytes
+                        st.session_state.charts_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                        st.success("✅ Charts generated!")
+                        st.rerun()
+
+                if 'last_generated_charts' in st.session_state and st.session_state.last_generated_charts:
+                    timestamp = st.session_state.get('charts_timestamp', datetime.now().strftime('%Y%m%d_%H%M%S'))
                     st.download_button(
                         label="📥 Download Charts",
-                        data=chart_bytes,
-                        file_name=f"DealGenie_Charts_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
-                        mime="image/png"
+                        data=st.session_state.last_generated_charts,
+                        file_name=f"DealGenie_Charts_{timestamp}.png",
+                        mime="image/png",
+                        use_container_width=True,
+                        key="download_charts"
                     )
+                    st.caption(f"📅 Generated: {timestamp}")
 
     with tab5:
         st.header("⚙️ Template Settings & Management")
