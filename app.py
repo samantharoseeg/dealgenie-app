@@ -157,6 +157,126 @@ def delete_template(template_name: str) -> bool:
         st.error(f"Error deleting template: {str(e)}")
         return False
 
+def validate_template_structure(template_data: Dict) -> Tuple[bool, str]:
+    """
+    Validate imported template JSON structure
+
+    Args:
+        template_data: Dictionary loaded from JSON file
+
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    try:
+        # Check required keys
+        required_keys = ["template_name", "created_date"]
+        for key in required_keys:
+            if key not in template_data:
+                return False, f"Missing required key: '{key}'"
+
+        # Validate benchmark_overrides structure (if present)
+        if "benchmark_overrides" in template_data:
+            if not isinstance(template_data["benchmark_overrides"], dict):
+                return False, "benchmark_overrides must be a dictionary"
+            # Check nested structure
+            for asset_class, subclasses in template_data["benchmark_overrides"].items():
+                if not isinstance(subclasses, dict):
+                    return False, f"Invalid structure in benchmark_overrides for '{asset_class}'"
+                for subclass, metrics in subclasses.items():
+                    if not isinstance(metrics, dict):
+                        return False, f"Invalid structure in benchmark_overrides for '{asset_class}.{subclass}'"
+
+        # Validate custom_dd_items structure (if present)
+        if "custom_dd_items" in template_data:
+            if not isinstance(template_data["custom_dd_items"], dict):
+                return False, "custom_dd_items must be a dictionary"
+            # Check that values are lists
+            for category, items in template_data["custom_dd_items"].items():
+                if not isinstance(items, list):
+                    return False, f"custom_dd_items['{category}'] must be a list"
+                # Check that list contains strings
+                for item in items:
+                    if not isinstance(item, str):
+                        return False, f"Items in custom_dd_items['{category}'] must be strings"
+
+        # Validate profile_name (if present)
+        if "profile_name" in template_data:
+            if not isinstance(template_data["profile_name"], str):
+                return False, "profile_name must be a string"
+
+        return True, ""
+
+    except Exception as e:
+        return False, f"Validation error: {str(e)}"
+
+def import_template_from_json(json_data: Dict) -> bool:
+    """
+    Import template from JSON data and update session state
+
+    Args:
+        json_data: Dictionary containing template data
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        # Validate structure
+        is_valid, error_msg = validate_template_structure(json_data)
+        if not is_valid:
+            st.error(f"❌ Invalid template format: {error_msg}")
+            return False
+
+        # Update session state with validated data
+        if "benchmark_overrides" in json_data:
+            st.session_state.benchmark_overrides = json_data["benchmark_overrides"]
+
+        if "custom_dd_items" in json_data:
+            st.session_state.custom_dd_items = json_data["custom_dd_items"]
+
+        if "profile_name" in json_data:
+            st.session_state.profile_name = json_data["profile_name"]
+
+        # Store template metadata for display
+        st.session_state.imported_template_name = json_data.get("template_name", "Imported Template")
+        st.session_state.imported_template_date = json_data.get("created_date", "Unknown")
+
+        return True
+
+    except Exception as e:
+        st.error(f"❌ Error importing template: {str(e)}")
+        return False
+
+def export_template_to_json() -> Dict:
+    """
+    Export current settings as JSON-serializable dictionary
+
+    Returns:
+        Dictionary containing all template data
+    """
+    # Get current analysis data to determine asset class defaults
+    asset_class_defaults = {}
+    if hasattr(st.session_state, 'analysis_data') and st.session_state.analysis_data:
+        asset_class_defaults = {
+            "asset_class": st.session_state.analysis_data.get("asset_class", ""),
+            "subclass": st.session_state.analysis_data.get("subclass", "")
+        }
+
+    template_data = {
+        "template_name": st.session_state.get("profile_name", "Exported Template"),
+        "created_date": datetime.now().isoformat(),
+        "export_date": datetime.now().isoformat(),
+        "benchmark_overrides": st.session_state.get("benchmark_overrides", {}),
+        "custom_dd_items": st.session_state.get("custom_dd_items", {}),
+        "profile_name": st.session_state.get("profile_name", ""),
+        "asset_class_defaults": asset_class_defaults,
+        "metadata": {
+            "version": "1.0",
+            "exported_from": "DealGenie Pro"
+        }
+    }
+
+    return template_data
+
 # ============================================================================
 # CUSTOM STYLING
 # ============================================================================
@@ -3115,19 +3235,117 @@ def render_profile_and_templates():
                     st.session_state.selected_template = "Default"
                     st.rerun()
 
-        # Show template info
+        # Export/Import Section
+        st.markdown("---")
+        st.markdown("**📤 Export / 📥 Import**")
+
+        # Export current settings as JSON
+        export_data = export_template_to_json()
+        export_json = json.dumps(export_data, indent=2)
+        export_filename = f"{st.session_state.get('profile_name', 'template').replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.json"
+
+        st.download_button(
+            label="📥 Export Template as JSON",
+            data=export_json,
+            file_name=export_filename,
+            mime="application/json",
+            use_container_width=True,
+            help="Download current settings as a JSON file"
+        )
+
+        # Import template from JSON file
+        uploaded_file = st.file_uploader(
+            "📤 Import Template",
+            type=['json'],
+            help="Upload a previously exported template JSON file",
+            key="template_uploader"
+        )
+
+        if uploaded_file is not None:
+            try:
+                # Read and parse JSON
+                json_content = uploaded_file.read().decode('utf-8')
+                imported_data = json.loads(json_content)
+
+                # Import and validate
+                if import_template_from_json(imported_data):
+                    st.success(f"✅ Template imported successfully!")
+                    st.session_state.selected_template = "Default"  # Reset selector
+                    st.rerun()
+
+            except json.JSONDecodeError as e:
+                st.error(f"❌ Invalid JSON file: {str(e)}")
+            except Exception as e:
+                st.error(f"❌ Error reading file: {str(e)}")
+
+        # Show template metadata
+        st.markdown("---")
+        st.markdown("**📊 Template Metadata**")
+
+        # Display metadata based on source
         if selected_template not in ["Default", "New Template"]:
+            # Show saved template metadata
             try:
                 template_path = TEMPLATES_DIR / f"{selected_template}.json"
                 if template_path.exists():
                     with open(template_path, 'r') as f:
                         template_data = json.load(f)
+
                     created_date = template_data.get("created_date", "Unknown")
                     if created_date != "Unknown":
                         created_date = datetime.fromisoformat(created_date).strftime("%Y-%m-%d %H:%M")
-                    st.caption(f"Created: {created_date}")
-            except:
-                pass
+
+                    # Count customizations
+                    num_benchmark_overrides = 0
+                    if "benchmark_overrides" in template_data:
+                        for asset_class, subclasses in template_data["benchmark_overrides"].items():
+                            for subclass, metrics in subclasses.items():
+                                num_benchmark_overrides += len(metrics)
+
+                    num_custom_dd = sum(len(items) for items in template_data.get("custom_dd_items", {}).values())
+
+                    st.caption(f"**Created:** {created_date}")
+                    st.caption(f"**Custom Benchmarks:** {num_benchmark_overrides}")
+                    st.caption(f"**Custom DD Items:** {num_custom_dd}")
+
+            except Exception as e:
+                st.caption("Unable to load metadata")
+
+        elif hasattr(st.session_state, 'imported_template_name'):
+            # Show imported template metadata
+            imported_date = st.session_state.get('imported_template_date', 'Unknown')
+            if imported_date != "Unknown":
+                try:
+                    imported_date = datetime.fromisoformat(imported_date).strftime("%Y-%m-%d %H:%M")
+                except:
+                    pass
+
+            # Count current customizations
+            num_benchmark_overrides = 0
+            if hasattr(st.session_state, 'benchmark_overrides'):
+                for asset_class, subclasses in st.session_state.benchmark_overrides.items():
+                    for subclass, metrics in subclasses.items():
+                        num_benchmark_overrides += len(metrics)
+
+            num_custom_dd = sum(len(items) for items in st.session_state.get("custom_dd_items", {}).values())
+
+            st.caption(f"**Source:** Imported ({st.session_state.imported_template_name})")
+            st.caption(f"**Created:** {imported_date}")
+            st.caption(f"**Custom Benchmarks:** {num_benchmark_overrides}")
+            st.caption(f"**Custom DD Items:** {num_custom_dd}")
+
+        else:
+            # Show current state metadata
+            num_benchmark_overrides = 0
+            if hasattr(st.session_state, 'benchmark_overrides'):
+                for asset_class, subclasses in st.session_state.benchmark_overrides.items():
+                    for subclass, metrics in subclasses.items():
+                        num_benchmark_overrides += len(metrics)
+
+            num_custom_dd = sum(len(items) for items in st.session_state.get("custom_dd_items", {}).values())
+
+            st.caption(f"**Custom Benchmarks:** {num_benchmark_overrides}")
+            st.caption(f"**Custom DD Items:** {num_custom_dd}")
 
         st.markdown("---")
 
