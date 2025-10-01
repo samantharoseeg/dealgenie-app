@@ -2654,6 +2654,72 @@ def render_analysis(data: Dict):
 
     # Check if we have enhanced extracted data for tabbed interface
     if extracted_data:
+        # ============================================================================
+        # DATA COMPLETENESS SUMMARY CARD
+        # ============================================================================
+        st.markdown("### 📊 Data Completeness Summary")
+
+        # Calculate completeness metrics
+        known_fields = extracted_data.get('known', {})
+        unknown_fields = extracted_data.get('unknown', {})
+
+        total_fields = len(known_fields) + len(unknown_fields)
+        known_count = len(known_fields)
+        completeness_pct = (known_count / total_fields * 100) if total_fields > 0 else 0
+
+        # Count confidence levels
+        confidence_dist = {'High': 0, 'Medium': 0, 'Low': 0}
+        for field, info in known_fields.items():
+            confidence = info.get('confidence', 'Medium')
+            if confidence in confidence_dist:
+                confidence_dist[confidence] += 1
+
+        # Get HIGH priority missing fields
+        high_priority_missing = []
+        for field, priority in unknown_fields.items():
+            if priority == 'HIGH':
+                high_priority_missing.append(field)
+
+        # Create summary card with custom styling
+        col1, col2, col3 = st.columns([2, 1, 1])
+
+        with col1:
+            st.markdown("**Overall Completeness**")
+            st.progress(completeness_pct / 100)
+            st.caption(f"{known_count} of {total_fields} fields extracted ({completeness_pct:.1f}%)")
+
+        with col2:
+            st.markdown("**Confidence Distribution**")
+            st.metric("🟢 High", confidence_dist['High'])
+            st.metric("🟡 Medium", confidence_dist['Medium'])
+            st.metric("🔴 Low", confidence_dist['Low'])
+
+        with col3:
+            st.markdown("**Missing Data**")
+            st.metric("⚠️ High Priority", len(high_priority_missing))
+            st.metric("📝 Total Missing", len(unknown_fields))
+
+        # Show HIGH priority missing fields if any
+        if high_priority_missing:
+            st.markdown("**🔴 High Priority Missing Fields:**")
+            col1, col2 = st.columns([3, 1])
+
+            with col1:
+                # Display as badges
+                missing_display = ", ".join([f"`{field.replace('_', ' ').title()}`" for field in high_priority_missing[:5]])
+                if len(high_priority_missing) > 5:
+                    missing_display += f" and {len(high_priority_missing) - 5} more..."
+                st.markdown(missing_display)
+
+            with col2:
+                # Add Missing Data button
+                if st.button("➕ Add Missing Data", use_container_width=True, key="add_missing_data"):
+                    st.info("💡 Scroll up to the manual entry section to add missing data")
+                    # Note: st.experimental_rerun() would cause page reload
+                    # Instead, we show a message to guide the user
+
+        st.markdown("---")
+
         # Enhanced six-tab interface when extraction data is available
         tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
             "📊 Key Metrics", "✅ What We Know", "❌ What We Don't",
