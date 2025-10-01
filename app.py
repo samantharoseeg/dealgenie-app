@@ -21,6 +21,9 @@ from pathlib import Path
 from ocr_parser import ComprehensiveDataParser
 from llm_enhancement import render_api_settings, render_summary_with_llm_option, calculate_metrics_for_llm
 from cre_extraction_engine import CREExtractionEngine, ASSET_CLASSES
+
+# Load Anthropic API key from environment variable
+ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY')
 from benchmarks import (
     BENCHMARKS as BENCHMARK_DATA,
     METRICS_CATALOG,
@@ -2009,33 +2012,53 @@ def generate_market_context(extracted_data: Dict) -> str:
         return ""
 
     try:
-        # Initialize market intelligence dict
-        market_intel = {
-            'cap_rates': [],
-            'trends': [],
-            'supply_demand': []
-        }
+        # Check if Anthropic API key is configured
+        if not st.session_state.get('anthropic_api_key'):
+            return ""
 
-        # Query 1: Market trends
-        trends_query = f"{metro_market} {asset_class} market trends 2025"
-        # Query 2: Cap rates
-        cap_query = f"{metro_market} cap rates {subclass if subclass else asset_class}"
-        # Query 3: Comparable sales
-        comps_query = f"{metro_market} comparable sales {asset_class}"
+        # Build research prompt for market intelligence
+        prompt = f"""Research current market conditions for {asset_class} properties in {metro_market}.
 
-        # Note: WebSearch tool is available in the environment
-        # For production, implement actual web search calls here
-        # Example structure (would need actual WebSearch implementation):
-        # results = web_search(trends_query)
-        # market_intel['trends'] = extract_key_stats(results)
+Find:
+1) Current cap rate ranges
+2) Recent comparable sale prices ($/unit or $/SF)
+3) Occupancy trends and supply/demand
 
-        # For now, create placeholder that shows the structure
-        market_context = f"**MARKET CONTEXT ({metro_market}):**\n"
-        market_context += f"• Market intelligence for {metro_market} {asset_class} properties "
-        market_context += f"would appear here with cap rate ranges, pricing trends, and supply/demand dynamics. "
-        market_context += f"Sources would include (CoStar Q4 2024), (CBRE Market Report), (Real Capital Analytics).\n"
+Return 2-3 bullet points with inline source citations like (Source Name Q4 2024). Be concise."""
 
-        return market_context
+        # Call Anthropic API for market research
+        try:
+            import anthropic
+
+            client = anthropic.Anthropic(api_key=st.session_state.anthropic_api_key)
+
+            response = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=500,
+                messages=[
+                    {"role": "user", "content": prompt}
+                ]
+            )
+
+            # Extract text from response
+            response_text = response.content[0].text
+
+            # Format with market context header
+            if response_text and response_text.strip():
+                market_context = f"**MARKET CONTEXT ({metro_market}):**\n{response_text}"
+                return market_context
+            else:
+                return ""
+
+        except anthropic.AuthenticationError:
+            # Invalid API key - fail silently
+            return ""
+        except anthropic.APIError as e:
+            # API error - fail silently
+            return ""
+        except Exception as e:
+            # Any other error - fail silently
+            return ""
 
     except Exception as e:
         # Silently fail - market context is optional enhancement
@@ -3738,6 +3761,10 @@ def main():
 
     # Ensure templates directory exists
     os.makedirs('data/templates', exist_ok=True)
+
+    # Initialize Anthropic API key from environment variable
+    if 'anthropic_api_key' not in st.session_state:
+        st.session_state.anthropic_api_key = ANTHROPIC_API_KEY or ""
 
     # Initialize template tracking flags
     if 'template_loaded' not in st.session_state:
