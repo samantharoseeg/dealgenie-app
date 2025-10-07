@@ -1353,6 +1353,8 @@ def render_input_section():
 
             st.markdown("---")
 
+        # Financial fields continue in col1
+        with col1:
             purchase_price = st.number_input(
                 "Purchase Price ($)",
                 min_value=0,
@@ -3526,6 +3528,10 @@ def render_analysis(data: Dict):
 def render_profile_and_templates():
     """Render user profile and template management in sidebar"""
     with st.sidebar:
+        # Version indicator
+        st.text("Version: 2025-01-07-v2")
+        st.markdown("---")
+
         # Active Template Indicator (at the top)
         st.markdown("### 📌 Active Template")
 
@@ -3766,6 +3772,10 @@ def render_profile_and_templates():
 
 def main():
     """Main application entry point"""
+    # Version tracking and diagnostics
+    APP_VERSION = "2025-01-07-v2"
+    print(f"App started - Version {APP_VERSION} - API Key present: {bool(ANTHROPIC_API_KEY)}")
+
     inject_custom_css()
     render_header()
 
