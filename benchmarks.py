@@ -830,11 +830,13 @@ def get_status(
         else:
             return "Offside"
     else:
-        # Single preferred value - use tolerance
-        tolerance = abs(preferred_val * 0.1)  # 10% tolerance
-        if abs(value - preferred_val) <= tolerance:
+        # Single preferred value - treat min to preferred as the preferred range
+        # OK: if min <= value <= preferred
+        # Borderline: if preferred < value <= max
+        # Offside: if value < min or value > max
+        if min_val <= value <= preferred_val:
             return "OK"
-        elif min_val <= value <= max_val:
+        elif preferred_val < value <= max_val:
             return "Borderline"
         else:
             return "Offside"

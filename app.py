@@ -1311,14 +1311,19 @@ def render_input_section():
                 )
                 st.session_state['subclass'] = subclass
 
-            # Location fields
+            # Location fields - visually separated section
+            st.markdown("---")
             st.markdown("**📍 Location**")
-            property_city = st.text_input(
-                "City",
-                placeholder="e.g., Manhattan",
-                key="property_city_input"
-            )
-            st.session_state['property_city'] = property_city
+
+            # City and State in columns for better layout
+            loc_col1, loc_col2 = st.columns(2)
+            with loc_col1:
+                property_city = st.text_input(
+                    "City",
+                    placeholder="e.g., Manhattan",
+                    key="property_city_input"
+                )
+                st.session_state['property_city'] = property_city
 
             us_states = ["", "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA",
                         "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD",
@@ -1326,13 +1331,15 @@ def render_input_section():
                         "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC",
                         "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY"]
 
-            property_state = st.selectbox(
-                "State",
-                options=us_states,
-                key="property_state_input"
-            )
-            st.session_state['property_state'] = property_state
+            with loc_col2:
+                property_state = st.selectbox(
+                    "State",
+                    options=us_states,
+                    key="property_state_input"
+                )
+                st.session_state['property_state'] = property_state
 
+            # Metro Market on its own row
             metro_markets = ["", "NYC", "Los Angeles", "SF Bay Area", "Dallas",
                            "Houston", "Atlanta", "Phoenix", "Seattle", "Denver",
                            "Boston", "Washington DC", "Miami", "Chicago", "Austin", "Charlotte"]
@@ -1343,6 +1350,8 @@ def render_input_section():
                 key="metro_market_input"
             )
             st.session_state['metro_market'] = metro_market
+
+            st.markdown("---")
 
             purchase_price = st.number_input(
                 "Purchase Price ($)",
@@ -2009,13 +2018,15 @@ def generate_market_context(extracted_data: Dict) -> str:
 
     # Skip if no metro market specified
     if not metro_market:
+        st.info("💡 Add a metro market in the location section to enable real-time market intelligence")
+        return ""
+
+    # Check if Anthropic API key is configured
+    if not st.session_state.get('anthropic_api_key'):
+        st.warning("⚠️ Anthropic API key not configured - market intelligence disabled")
         return ""
 
     try:
-        # Check if Anthropic API key is configured
-        if not st.session_state.get('anthropic_api_key'):
-            return ""
-
         # Build research prompt for market intelligence
         prompt = f"""Research current market conditions for {asset_class} properties in {metro_market}.
 
@@ -2026,42 +2037,45 @@ Find:
 
 Return 2-3 bullet points with inline source citations like (Source Name Q4 2024). Be concise."""
 
-        # Call Anthropic API for market research
-        try:
-            import anthropic
+        # Call Anthropic API for market research with spinner
+        with st.spinner(f"🔍 Researching market trends for {metro_market}..."):
+            try:
+                import anthropic
 
-            client = anthropic.Anthropic(api_key=st.session_state.anthropic_api_key)
+                client = anthropic.Anthropic(api_key=st.session_state.anthropic_api_key)
 
-            response = client.messages.create(
-                model="claude-sonnet-4-20250514",
-                max_tokens=500,
-                messages=[
-                    {"role": "user", "content": prompt}
-                ]
-            )
+                response = client.messages.create(
+                    model="claude-sonnet-4-20250514",
+                    max_tokens=500,
+                    messages=[
+                        {"role": "user", "content": prompt}
+                    ]
+                )
 
-            # Extract text from response
-            response_text = response.content[0].text
+                # Extract text from response
+                response_text = response.content[0].text
 
-            # Format with market context header
-            if response_text and response_text.strip():
-                market_context = f"**MARKET CONTEXT ({metro_market}):**\n{response_text}"
-                return market_context
-            else:
+                # Log successful response
+                if response_text and response_text.strip():
+                    st.success(f"✅ Market research complete for {metro_market}")
+                    market_context = f"**MARKET CONTEXT ({metro_market}):**\n{response_text}"
+                    return market_context
+                else:
+                    st.warning(f"⚠️ No market data returned for {metro_market}")
+                    return ""
+
+            except anthropic.AuthenticationError:
+                st.error("❌ Invalid Anthropic API key - please check your configuration")
+                return ""
+            except anthropic.APIError as e:
+                st.error(f"❌ Anthropic API error: {str(e)}")
+                return ""
+            except Exception as e:
+                st.error(f"❌ Error during market research: {str(e)}")
                 return ""
 
-        except anthropic.AuthenticationError:
-            # Invalid API key - fail silently
-            return ""
-        except anthropic.APIError as e:
-            # API error - fail silently
-            return ""
-        except Exception as e:
-            # Any other error - fail silently
-            return ""
-
     except Exception as e:
-        # Silently fail - market context is optional enhancement
+        st.error(f"❌ Unexpected error in market context generation: {str(e)}")
         return ""
 
 
@@ -3819,7 +3833,7 @@ def main():
         "📚 Benchmarks",
         "📋 Due Diligence",
         "📄 Reports",
-        "⚙️ Settings"
+        "📋 Templates"
     ])
 
     with tab1:
@@ -4468,7 +4482,7 @@ def main():
                     st.caption(f"📅 Generated: {timestamp}")
 
     with tab5:
-        st.header("⚙️ Template Settings & Management")
+        st.header("📋 Template Management")
 
         # Get list of templates
         available_templates = list_templates()
